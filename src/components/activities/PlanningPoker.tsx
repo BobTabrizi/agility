@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { MAX_POKER_CARD_LENGTH, POKER_PRESET_DECKS } from "@/lib/types";
 import type { Participant, PokerState } from "@/lib/types";
 import { PokerVoteChart } from "@/components/activities/PokerVoteChart";
 
@@ -14,7 +13,6 @@ export function PlanningPoker({
   onReveal,
   onReset,
   onSetTopic,
-  onSetDeck,
   onSetAnonymous,
 }: {
   poker: PokerState;
@@ -25,7 +23,6 @@ export function PlanningPoker({
   onReveal: () => void;
   onReset: () => void;
   onSetTopic: (topic: string) => void;
-  onSetDeck: (deck: string[]) => void;
   onSetAnonymous: (anonymous: boolean) => void;
 }) {
   const [topicDraft, setTopicDraft] = useState(poker.topic);
@@ -36,40 +33,6 @@ export function PlanningPoker({
   }
   const [justSavedTopic, setJustSavedTopic] = useState(false);
   const topicIsUnsaved = topicDraft.trim() !== poker.topic;
-
-  const deckText = poker.deck.join(", ");
-  const [deckDraft, setDeckDraft] = useState(deckText);
-  const [lastSeenDeckText, setLastSeenDeckText] = useState(deckText);
-  if (deckText !== lastSeenDeckText) {
-    setLastSeenDeckText(deckText);
-    setDeckDraft(deckText);
-  }
-  const [deckExpanded, setDeckExpanded] = useState(false);
-  const parsedDeckDraft = deckDraft
-    .split(",")
-    .map((c) => c.trim())
-    .filter(Boolean);
-  const deckIsUnsaved = parsedDeckDraft.join(", ") !== poker.deck.join(", ");
-
-  // The card currently being typed is whatever's after the last comma —
-  // that's the one worth showing a live counter for.
-  const deckDraftCards = deckDraft.split(",");
-  const activeCardLength = deckDraftCards[deckDraftCards.length - 1].trim().length;
-
-  function handleDeckDraftChange(value: string) {
-    // Cap each card as it's typed (rather than only on save) so admins get
-    // immediate feedback instead of a silent server-side truncation later.
-    const capped = value
-      .split(",")
-      .map((card) => card.slice(0, MAX_POKER_CARD_LENGTH))
-      .join(",");
-    setDeckDraft(capped);
-  }
-
-  function saveDeck(deck: string[]) {
-    if (deck.length === 0) return;
-    onSetDeck(deck);
-  }
 
   const myVote = poker.votes[selfId] ?? null;
   const voteCount = Object.keys(poker.votes).length;
@@ -120,35 +83,6 @@ export function PlanningPoker({
           </p>
         )}
       </div>
-
-      {!poker.revealed && (
-        <div className="rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
-          <p className="mb-3 text-sm font-medium text-neutral-500 dark:text-neutral-400">
-            Pick your card
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {poker.deck.map((card) => {
-              const selected = myVote === card;
-              const isShort = card.length <= 3;
-              return (
-                <button
-                  key={card}
-                  onClick={() => onVote(selected ? null : card)}
-                  className={`flex min-h-16 items-center justify-center rounded-xl border-2 px-3 py-2 text-center font-semibold leading-tight break-words transition ${
-                    isShort ? "min-w-12 text-lg" : "max-w-32 text-sm"
-                  } ${
-                    selected
-                      ? "border-indigo-600 bg-indigo-600 text-white"
-                      : "border-neutral-300 bg-white text-neutral-700 hover:border-indigo-400 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"
-                  }`}
-                >
-                  {card}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       <div className="rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -241,71 +175,36 @@ export function PlanningPoker({
         )}
       </div>
 
-      {poker.revealed && <PokerVoteChart votes={poker.votes} deck={poker.deck} />}
-
-      {isAdmin && (
+      {!poker.revealed && (
         <div className="rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
-          <button
-            type="button"
-            onClick={() => setDeckExpanded((v) => !v)}
-            className="flex w-full items-center justify-between text-left text-sm font-medium text-neutral-500 dark:text-neutral-400"
-          >
-            Customize card deck
-            <span className="text-xs text-neutral-400">{deckExpanded ? "Hide" : "Show"}</span>
-          </button>
-
-          {deckExpanded && (
-            <div className="mt-4 flex flex-col gap-4">
-              <div className="flex flex-wrap gap-2">
-                {POKER_PRESET_DECKS.map((preset) => (
-                  <button
-                    key={preset.label}
-                    onClick={() => saveDeck(preset.deck)}
-                    className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-              </div>
-
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  saveDeck(parsedDeckDraft);
-                }}
-                className="flex items-center gap-2"
-              >
-                <input
-                  value={deckDraft}
-                  onChange={(e) => handleDeckDraftChange(e.target.value)}
-                  placeholder="0, 1, 2, 3, 5, 8, 13, ?, Continue retrospective, Leave retrospective"
-                  className="flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
-                />
-                <span
-                  className={`shrink-0 text-xs tabular-nums ${
-                    activeCardLength >= MAX_POKER_CARD_LENGTH
-                      ? "text-red-500"
-                      : "text-neutral-400 dark:text-neutral-500"
+          <p className="mb-3 text-sm font-medium text-neutral-500 dark:text-neutral-400">
+            Pick your card
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {poker.deck.map((card) => {
+              const selected = myVote === card;
+              const isShort = card.length <= 3;
+              return (
+                <button
+                  key={card}
+                  onClick={() => onVote(selected ? null : card)}
+                  className={`flex min-h-16 items-center justify-center rounded-xl border-2 px-3 py-2 text-center font-semibold leading-tight break-words transition ${
+                    isShort ? "min-w-12 text-lg" : "max-w-32 text-sm"
+                  } ${
+                    selected
+                      ? "border-indigo-600 bg-indigo-600 text-white"
+                      : "border-neutral-300 bg-white text-neutral-700 hover:border-indigo-400 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"
                   }`}
                 >
-                  {activeCardLength}/{MAX_POKER_CARD_LENGTH}
-                </span>
-                <button
-                  type="submit"
-                  disabled={!deckIsUnsaved || parsedDeckDraft.length === 0}
-                  className="rounded-lg border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
-                >
-                  Save deck
+                  {card}
                 </button>
-              </form>
-              <p className="text-xs text-neutral-400">
-                Comma-separated card values — numbers, sizes, or short phrases, up to {MAX_POKER_CARD_LENGTH}{" "}
-                characters each — shown to everyone in the room. Saving resets any votes in progress.
-              </p>
-            </div>
-          )}
+              );
+            })}
+          </div>
         </div>
       )}
+
+      {poker.revealed && <PokerVoteChart votes={poker.votes} deck={poker.deck} />}
     </div>
   );
 }

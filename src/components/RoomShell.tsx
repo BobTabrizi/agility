@@ -3,9 +3,12 @@
 import { RoomHeader } from "@/components/RoomHeader";
 import { ActivityTabs } from "@/components/ActivityTabs";
 import { PlanningPoker } from "@/components/activities/PlanningPoker";
+import { PokerOptionsMenu } from "@/components/activities/PokerOptionsMenu";
 import { FeedbackBox } from "@/components/activities/FeedbackBox";
 import { Plinko } from "@/components/activities/Plinko";
+import { Teams } from "@/components/activities/Teams";
 import { useRoomActions } from "@/hooks/useRoomActions";
+import { activeParticipantNames } from "@/lib/participants";
 import type { PublicRoomState } from "@/lib/types";
 
 export function RoomShell({
@@ -19,6 +22,7 @@ export function RoomShell({
 }) {
   const actions = useRoomActions();
   const connectedParticipants = state.participants.filter((p) => p.connected);
+  const activeMemberNames = activeParticipantNames(state.participants);
 
   return (
     <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
@@ -30,7 +34,17 @@ export function RoomShell({
           isAdmin={isAdmin}
         />
 
-        <ActivityTabs active={state.activeActivity} isAdmin={isAdmin} onChange={actions.setActivity} />
+        <div className="flex items-center justify-between gap-2">
+          <ActivityTabs active={state.activeActivity} isAdmin={isAdmin} onChange={actions.setActivity} />
+          {state.activeActivity === "poker" && (
+            <PokerOptionsMenu
+              history={state.pokerHistory}
+              deck={state.poker.deck}
+              isAdmin={isAdmin}
+              onSetDeck={actions.setDeck}
+            />
+          )}
+        </div>
 
         {state.activeActivity === "poker" && (
           <PlanningPoker
@@ -42,7 +56,6 @@ export function RoomShell({
             onReveal={actions.reveal}
             onReset={actions.reset}
             onSetTopic={actions.setTopic}
-            onSetDeck={actions.setDeck}
             onSetAnonymous={actions.setAnonymous}
           />
         )}
@@ -55,8 +68,18 @@ export function RoomShell({
           <Plinko
             plinko={state.plinko}
             isAdmin={isAdmin}
+            activeMemberNames={activeMemberNames}
             onSetOptions={actions.setPlinkoOptions}
             onSpin={actions.spin}
+          />
+        )}
+
+        {state.activeActivity === "teams" && (
+          <Teams
+            teams={state.teams}
+            isAdmin={isAdmin}
+            activeMemberNames={activeMemberNames}
+            onGenerate={actions.generateTeams}
           />
         )}
       </div>

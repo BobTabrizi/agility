@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { InviteModal } from "@/components/InviteModal";
 import type { Participant } from "@/lib/types";
 
 export function RoomHeader({
@@ -14,8 +15,8 @@ export function RoomHeader({
   participants: Participant[];
   isAdmin: boolean;
 }) {
-  const [copied, setCopied] = useState(false);
   const [rosterOpen, setRosterOpen] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
   const rosterRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -36,15 +37,8 @@ export function RoomHeader({
     };
   }, [rosterOpen]);
 
-  async function copyLink() {
-    const url = `${window.location.origin}/room/${code}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // clipboard unavailable — no-op
-    }
+  function inviteUrl() {
+    return `${window.location.origin}/room/${code}`;
   }
 
   const connectedParticipants = participants.filter((p) => p.connected);
@@ -129,12 +123,14 @@ export function RoomHeader({
           )}
         </div>
         <button
-          onClick={copyLink}
+          onClick={() => setInviteOpen(true)}
           className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
         >
-          {copied ? "Copied!" : "Copy invite link"}
+          Copy invite link
         </button>
       </div>
+
+      {inviteOpen && <InviteModal url={inviteUrl()} onClose={() => setInviteOpen(false)} />}
     </div>
   );
 }

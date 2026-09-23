@@ -13,9 +13,12 @@ npm run build       # next build
 npm start          # production: cross-env NODE_ENV=production tsx server.ts (runs server.ts, not `next start`)
 npm run lint        # eslint
 npx tsc --noEmit -p tsconfig.json   # type-check (no dedicated script)
+npm test           # vitest run — runs once and exits
+npm run test:watch  # vitest — watch mode
 ```
 
-There is no test suite/runner configured in this repo.
+Tests run via Vitest (`vitest.config.ts` aliases `@/*` to `src/*`, matching `tsconfig.json`), not through
+`tsx`/the custom server — they don't touch the running dev server or its in-memory rooms.
 
 Editing anything under `src/server/` or `server.ts` restarts the whole `tsx watch` process, which wipes
 all in-memory rooms (see below) — recreate any room you were testing against after server-side edits.
@@ -50,6 +53,10 @@ all in-memory rooms (see below) — recreate any room you were testing against a
   Planning Poker's anonymous-voting mode is different: vote values are sent to every client as usual,
   and the UI (`PlanningPoker.tsx`) simply declines to render the per-person mapping. If anonymity ever
   needs to be enforced server-side, that's a `toPublicState()`-style change, not a UI change.
+  `pokerHistory` (`poker:reveal` in `socketServer.ts`) takes the stricter approach even for the
+  UI-hidden case: for a round revealed under anonymous voting, `name` is recorded as `null` in the
+  history entry itself, not just hidden client-side — so a past anonymous round stays anonymous even
+  after the toggle is switched off.
 
 - **Round-reset convention**: any admin action that changes the rules of the current round (changing
   the poker deck, toggling anonymous voting) resets `votes`/`revealed` on the server, so votes cast
@@ -65,5 +72,12 @@ all in-memory rooms (see below) — recreate any room you were testing against a
 - **Scaling caveat**: room state is per-process memory, and a Socket.IO client must stay connected to
   the instance it joined a room on. Running more than one instance behind a load balancer needs sticky
   sessions or a shared store — not relevant for local dev or a single instance.
+
+- **`RoomStore` contract tests**: `src/server/roomStore.contract.ts` exports `testRoomStoreContract(createStore)`,
+  a shared Vitest suite describing the behavior any `RoomStore` implementation must have (case-insensitive
+  codes, defaults, persistence, no-op on missing rooms, etc.) — `roomStore.test.ts` runs it against
+  `InMemoryRoomStore`. When a persistent backend (e.g. DynamoDB) is added, run this same suite against it
+  before wiring it into `socketServer.ts`; that's the intended safety net for the swap. The file isn't named
+  `*.test.ts` on purpose, so Vitest doesn't try to execute it directly.
 
 - Path alias `@/*` → `src/*` (`tsconfig.json`).

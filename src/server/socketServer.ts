@@ -5,9 +5,12 @@ import { roomStore, type StoredRoom } from "@/server/roomStore";
 import {
   ACTIVITIES,
   MAX_POKER_CARD_LENGTH,
+  MAX_TEAM_COUNT,
+  MAX_TEAM_NAME_LENGTH,
   type ActivityType,
   type FeedbackItem,
   type JoinAck,
+  type PokerHistoryEntry,
   type PublicRoomState,
 } from "@/lib/types";
 
@@ -24,6 +27,8 @@ const MAX_TOPIC_LENGTH = 200;
 const MAX_PLINKO_OPTIONS = 100;
 const MAX_PLINKO_OPTION_LENGTH = 200;
 const MAX_POKER_DECK_SIZE = 30;
+const MAX_TEAM_NAMES = 200;
+const MAX_POKER_HISTORY = 50;
 
 let io: SocketIOServer | undefined;
 
@@ -35,7 +40,9 @@ function toPublicState(room: StoredRoom, isAdmin: boolean): PublicRoomState {
     activeActivity: room.activeActivity,
     participants: room.participants,
     poker: room.poker,
+    pokerHistory: room.pokerHistory,
     plinko: room.plinko,
+    teams: room.teams,
     feedback: {
       submissionCount: room.feedback.submissionCount,
       items: isAdmin ? room.feedback.items : null,
@@ -151,6 +158,33 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
       const room = await roomStore.getRoom(code);
       if (!room) return;
       room.poker.revealed = true;
+
+      const voteEntries = Object.entries(room.poker.votes);
+      if (voteEntries.length > 0) {
+        const votes = voteEntries.map(([participantId, value]) => ({
+          // Recorded as null (not just hidden in the UI) for an anonymous
+          // round, so the history stays anonymous even if the toggle is
+          // switched off later.
+          name: room.poker.anonymous
+            ? null
+            : room.participants.find((p) => p.id === participantId)?.name ?? "Unknown",
+          value,
+        }));
+        const numericVotes = voteEntries.map(([, value]) => Number(value)).filter((n) => !Number.isNaN(n));
+        const average =
+          numericVotes.length > 0 ? numericVotes.reduce((a, b) => a + b, 0) / numericVotes.length : null;
+
+        const entry: PokerHistoryEntry = {
+          id: nanoid(10),
+          topic: room.poker.topic,
+          revealedAt: Date.now(),
+          anonymous: room.poker.anonymous,
+          votes,
+          average,
+        };
+        room.pokerHistory = [entry, ...room.pokerHistory].slice(0, MAX_POKER_HISTORY);
+      }
+
       room.lastActivityAt = Date.now();
       await roomStore.saveRoom(room);
       await broadcastRoomState(io!, code);
@@ -269,6 +303,40 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
       room.plinko.winner = winner;
       room.plinko.isRunning = true;
       room.plinko.seed = Date.now();
+      room.lastActivityAt = Date.now();
+      await roomStore.saveRoom(room);
+      await broadcastRoomState(io!, code);
+    });
+
+    // One atomic action rather than separate setNames/setCount/randomize events:
+    // the UI only ever calls this as a single "Generate teams" click, and folding
+    // it into one handler avoids any ordering risk between chained emits.
+    socket.on("teams:generate", async (payload: { names?: string[]; count?: number }) => {
+      if (!requireAdmin(socket)) return;
+      const { code } = socket.data as SocketData;
+      if (!code) return;
+      const room = await roomStore.getRoom(code);
+      if (!room) return;
+      const names = (payload?.names || [])
+        .map((n) => n.trim().slice(0, MAX_TEAM_NAME_LENGTH))
+        .filter(Boolean)
+        .slice(0, MAX_TEAM_NAMES);
+      if (names.length === 0) {
+        socket.emit("room:error", { message: "Add at least one name before generating teams." });
+        return;
+      }
+      const rawCount = Math.round(Number(payload?.count));
+      const teamCount = Math.min(Math.max(Number.isFinite(rawCount) ? rawCount : 1, 1), MAX_TEAM_COUNT);
+
+      const shuffled = [...names];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      const teams: string[][] = Array.from({ length: teamCount }, () => []);
+      shuffled.forEach((name, i) => teams[i % teamCount].push(name));
+
+      room.teams = { names, teamCount, teams };
       room.lastActivityAt = Date.now();
       await roomStore.saveRoom(room);
       await broadcastRoomState(io!, code);

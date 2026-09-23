@@ -33,6 +33,8 @@ Then open [http://localhost:3000](http://localhost:3000). `npm run dev` runs the
 `npm run build` / `npm start` build and run the production Next.js app through the same custom
 server.
 
+`npm test` runs the test suite (Vitest) once; `npm run test:watch` runs it in watch mode.
+
 ## How rooms work
 
 - **Create a room** on the home page: you pick a team/workspace name and your own display name.
@@ -47,13 +49,18 @@ server.
   clicking it opens the full roster of everyone who has ever joined, with anyone not currently
   connected grayed out and labeled "Away" rather than removed.
 - **Activities**: the admin picks which activity is active for the whole room (Planning Poker,
-  Feedback Box, or Plinko) via the tabs at the top; everyone in the room sees the same activity.
-  - **Planning Poker** — Fibonacci-ish deck, votes are hidden until the admin reveals them, then
-    shows each vote plus the average of numeric votes.
+  Feedback Box, Plinko, or Team Randomizer) via the tabs at the top; everyone in the room sees the
+  same activity.
+  - **Planning Poker** — deck is admin-customizable (numbers, sizes, or short text options),
+    votes are hidden until the admin reveals them, then shows each vote plus the average of
+    numeric votes. An anonymous-voting toggle hides who voted what (names stay visible, values
+    don't) and resets the round when flipped.
   - **Feedback Box** — participants submit free-text feedback with no name attached; only the
     admin can see submitted messages (others just see a running submission count).
   - **Plinko** — admin enters a list of options, "Drop the ball" picks one at random server-side
     and every client plays the same reveal animation.
+  - **Team Randomizer** — admin enters a list of names and a desired team count; "Generate teams"
+    shuffles the names server-side and splits them round-robin into that many teams.
 
 ## Deploying (AWS, later)
 

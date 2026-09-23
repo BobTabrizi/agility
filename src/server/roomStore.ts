@@ -23,7 +23,7 @@ export interface RoomStore {
 
 const ROOM_TTL_MS = 6 * 60 * 60 * 1000; // rooms with no activity for 6h are swept
 
-class InMemoryRoomStore implements RoomStore {
+export class InMemoryRoomStore implements RoomStore {
   private rooms = new Map<string, StoredRoom>();
 
   constructor() {
@@ -55,8 +55,10 @@ class InMemoryRoomStore implements RoomStore {
       activeActivity: "poker",
       participants: [],
       poker: { topic: "", votes: {}, revealed: false, deck: [...DEFAULT_POKER_DECK], anonymous: false },
+      pokerHistory: [],
       feedback: { items: [], submissionCount: 0 },
       plinko: { options: [], isRunning: false, winner: null, seed: null },
+      teams: { names: [], teamCount: 2, teams: [] },
     };
     this.rooms.set(code, room);
     return room;
@@ -71,7 +73,7 @@ class InMemoryRoomStore implements RoomStore {
   }
 
   async touchRoom(code: string): Promise<void> {
-    const room = this.rooms.get(code);
+    const room = this.rooms.get(code.toUpperCase());
     if (room) room.lastActivityAt = Date.now();
   }
 

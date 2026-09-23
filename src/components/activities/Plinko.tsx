@@ -1,16 +1,19 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { UseRoomMembersButton } from "@/components/UseRoomMembersButton";
 import type { PlinkoState } from "@/lib/types";
 
 export function Plinko({
   plinko,
   isAdmin,
+  activeMemberNames,
   onSetOptions,
   onSpin,
 }: {
   plinko: PlinkoState;
   isAdmin: boolean;
+  activeMemberNames: string[];
   onSetOptions: (options: string[]) => void;
   onSpin: () => void;
 }) {
@@ -172,12 +175,18 @@ export function Plinko({
               className="resize-none rounded-lg border border-neutral-300 px-3 py-2 text-sm font-normal outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
             />
           </label>
-          <button
-            type="submit"
-            className="mt-3 rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
-          >
-            Save options
-          </button>
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <UseRoomMembersButton
+              names={activeMemberNames}
+              onUse={(names) => setOptionsDraft(names.join("\n"))}
+            />
+            <button
+              type="submit"
+              className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+            >
+              Save options
+            </button>
+          </div>
         </form>
       )}
     </div>

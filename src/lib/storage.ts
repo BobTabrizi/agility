@@ -1,5 +1,7 @@
 "use client";
 
+import { nanoid } from "nanoid";
+
 const DISPLAY_NAME_KEY = "agility:name";
 
 export function adminTokenKey(code: string) {
@@ -25,7 +27,11 @@ export function getOrCreateClientId(code: string): string {
   const key = clientIdKey(code);
   let id = localStorage.getItem(key);
   if (!id) {
-    id = crypto.randomUUID();
+    // Not crypto.randomUUID(): that's gated behind a "secure context" (HTTPS,
+    // or the localhost exemption), so it throws when the app is reached over
+    // plain HTTP via a LAN IP (e.g. testing from a phone). nanoid uses
+    // crypto.getRandomValues(), which has no such restriction.
+    id = nanoid();
     localStorage.setItem(key, id);
   }
   return id;
