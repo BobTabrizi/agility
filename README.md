@@ -15,10 +15,13 @@ Socket.IO connection.
   because it needs a long-lived server process — this fits naturally on the AWS compute you're
   planning to move to (ECS/EC2/Elastic Beanstalk), whereas serverless platforms don't support
   persistent WebSocket connections well.
-- **In-memory room store** (`src/server/roomStore.ts`) behind a small `RoomStore` interface.
-  Rooms currently live only in server memory and expire after 6 hours of inactivity. The
-  interface is there so this can be swapped for a DynamoDB-backed implementation later without
-  touching the Socket.IO layer.
+- **Room storage** sits behind a `RoomStore` interface (`src/server/roomStore.ts`) so the
+  Socket.IO layer never depends on which backend is active. Defaults to `InMemoryRoomStore`
+  (rooms live only in server memory — lost on restart). A `DynamoRoomStore`
+  (`src/server/dynamoRoomStore.ts`) also exists, backed by a real DynamoDB table; opt into it
+  with `ROOM_STORE=dynamodb` + `DYNAMODB_TABLE_NAME` (see `.env.example`). Either way, rooms with
+  no activity for 60 days are cleaned up — an app-level sweep for the in-memory store, DynamoDB's
+  native TTL for the Dynamo one.
 
 ## Running locally
 
@@ -96,6 +99,6 @@ container-deployable without changes:
 - Two tabs open to the same room in the same browser share one identity (same stored client id),
   so closing either one will mark that person "Away" even if the other tab is still open. Edge
   case, not handled.
-- Room data is in-memory only — restarting the server clears all rooms. Swap
-  `InMemoryRoomStore` in `src/server/roomStore.ts` for a persistent implementation (e.g.
-  DynamoDB) when that matters.
+- Room data is in-memory only by default — restarting the server clears all rooms unless
+  `ROOM_STORE=dynamodb` is set (see above), in which case a `DynamoRoomStore` persists rooms in a
+  real DynamoDB table instead.

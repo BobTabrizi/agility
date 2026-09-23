@@ -18,7 +18,10 @@ npm run test:watch  # vitest — watch mode
 ```
 
 Tests run via Vitest (`vitest.config.ts` aliases `@/*` to `src/*`, matching `tsconfig.json`), not through
-`tsx`/the custom server — they don't touch the running dev server or its in-memory rooms.
+`tsx`/the custom server — they don't touch the running dev server or its in-memory rooms. Unlike the app
+itself, Vitest has no built-in `.env.local` loading (that's a Next.js-only convention), so
+`vitest.config.ts` loads it explicitly via `dotenv` — needed for `DYNAMODB_TEST_TABLE` and AWS credentials
+to reach `dynamoRoomStore.test.ts`.
 
 Editing anything under `src/server/` or `server.ts` restarts the whole `tsx watch` process, which wipes
 all in-memory rooms (see below) — recreate any room you were testing against after server-side edits.

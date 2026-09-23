@@ -1,5 +1,6 @@
 import { customAlphabet } from "nanoid";
 import { DEFAULT_POKER_DECK, type RoomState } from "@/lib/types";
+import { DynamoRoomStore } from "@/server/dynamoRoomStore";
 
 const roomCodeAlphabet = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 6);
 const tokenAlphabet = customAlphabet("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", 24);
@@ -21,7 +22,7 @@ export interface RoomStore {
   deleteRoom(code: string): Promise<void>;
 }
 
-const ROOM_TTL_MS = 6 * 60 * 60 * 1000; // rooms with no activity for 6h are swept
+const ROOM_TTL_MS = 60 * 24 * 60 * 60 * 1000; // rooms with no activity for 60 days are swept
 
 export class InMemoryRoomStore implements RoomStore {
   private rooms = new Map<string, StoredRoom>();
@@ -87,5 +88,19 @@ declare global {
   var __agilityRoomStore: RoomStore | undefined;
 }
 
-export const roomStore: RoomStore = globalThis.__agilityRoomStore ?? new InMemoryRoomStore();
+function createRoomStore(): RoomStore {
+  // Opt-in only — unset, this behaves exactly as before. Set ROOM_STORE=dynamodb
+  // (plus DYNAMODB_TABLE_NAME and AWS credentials, e.g. in .env.local) to try
+  // the DynamoDB-backed store locally without committing to it everywhere.
+  if (process.env.ROOM_STORE === "dynamodb") {
+    const tableName = process.env.DYNAMODB_TABLE_NAME;
+    if (!tableName) {
+      throw new Error("ROOM_STORE=dynamodb requires DYNAMODB_TABLE_NAME to be set.");
+    }
+    return new DynamoRoomStore(tableName);
+  }
+  return new InMemoryRoomStore();
+}
+
+export const roomStore: RoomStore = globalThis.__agilityRoomStore ?? createRoomStore();
 globalThis.__agilityRoomStore = roomStore;
