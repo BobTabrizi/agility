@@ -33,10 +33,22 @@ all in-memory rooms (see below) — recreate any room you were testing against a
   HTTP server. This is why dev/start run `server.ts` directly instead of the standard `next dev`/`next
   start` — a long-lived process is required for Socket.IO.
 
+- **`initSocketServer` is imported dynamically inside `app.prepare().then(...)`, not as a static
+  top-level import.** This matters: `next({...})` loads `.env.local` synchronously in its own
+  constructor, but ES module imports resolve their whole chain before any code in the importing file
+  runs — a static top-level import of `socketServer.ts` (which transitively imports `roomStore.ts`,
+  which reads `process.env.ROOM_STORE` at module-load time) would evaluate *before* `next({...})` is
+  even called, seeing an empty environment. This actually happened: `ROOM_STORE=dynamodb` silently
+  fell back to `InMemoryRoomStore` with no error, and only became obvious when a room didn't survive
+  a server restart. Anything importing `roomStore.ts`, directly or transitively, from `server.ts`
+  must stay after that line.
+
 - **Server-authoritative real-time state**: all room state (`RoomState`, `src/lib/types.ts`) lives in
-  `roomStore` (`src/server/roomStore.ts`), currently an `InMemoryRoomStore` behind a `RoomStore`
-  interface (swappable for a persistent store, e.g. DynamoDB, later). Every socket event handler in
-  `socketServer.ts` follows the same shape: validate the payload, mutate `room`, `await
+  `roomStore` (`src/server/roomStore.ts`), an `InMemoryRoomStore` by default behind a `RoomStore`
+  interface. A `DynamoRoomStore` (`src/server/dynamoRoomStore.ts`) also exists — set
+  `ROOM_STORE=dynamodb` + `DYNAMODB_TABLE_NAME` (plus AWS credentials) to use it instead; unset,
+  nothing changes. Every socket event handler in `socketServer.ts` follows the same shape: validate
+  the payload, mutate `room`, `await
   roomStore.saveRoom(room)`, then `await broadcastRoomState(io, code)` to push the full room state to
   everyone in that room's Socket.IO channel. Clients never mutate activity state locally — they call an
   action from `src/hooks/useRoomActions.ts` (a thin wrapper emitting a socket event) and wait for the
@@ -66,21 +78,28 @@ all in-memory rooms (see below) — recreate any room you were testing against a
   under different rules can't leak into the new state. Follow this pattern for similar settings.
 
 - **Client draft-sync idiom**: components holding a locally-editable draft of a server-pushed value
-  (the poker topic input and deck-editor input in `PlanningPoker.tsx`, Plinko's options textarea) pair
-  a draft `useState` with a `lastSeenX` `useState`, updated inline during render when the server value
+  that stays mounted while that value can change underneath it (the poker topic input in
+  `PlanningPoker.tsx`, Plinko's options textarea, Team Randomizer's name/count inputs) pair a draft
+  `useState` with a `lastSeenX` `useState`, updated inline during render when the server value
   changes — not a `useEffect`. `useEffect` in this codebase is reserved for actual side effects (e.g.
   Plinko's chained-`setTimeout` reveal animation), not for mirroring a prop/server value into local
-  state.
+  state. `PokerDeckModal.tsx` deliberately skips this: it mounts fresh every time the modal opens, so
+  a plain `useState(deck.join(", "))` is enough — no risk of the prop changing under an already-open
+  draft the way there is for something that stays mounted.
 
-- **Scaling caveat**: room state is per-process memory, and a Socket.IO client must stay connected to
-  the instance it joined a room on. Running more than one instance behind a load balancer needs sticky
-  sessions or a shared store — not relevant for local dev or a single instance.
+- **Scaling caveat**: a Socket.IO client must stay connected to the instance it joined a room on.
+  `ROOM_STORE=dynamodb` solves the room-*data* half of running multiple instances (any instance can
+  read/write any room), but not this half — that still needs sticky sessions (session affinity on
+  the load balancer) or a Socket.IO adapter (typically Redis) so a broadcast on one instance reaches
+  sockets connected to another. Not relevant for local dev or a single instance.
 
 - **`RoomStore` contract tests**: `src/server/roomStore.contract.ts` exports `testRoomStoreContract(createStore)`,
   a shared Vitest suite describing the behavior any `RoomStore` implementation must have (case-insensitive
-  codes, defaults, persistence, no-op on missing rooms, etc.) — `roomStore.test.ts` runs it against
-  `InMemoryRoomStore`. When a persistent backend (e.g. DynamoDB) is added, run this same suite against it
-  before wiring it into `socketServer.ts`; that's the intended safety net for the swap. The file isn't named
-  `*.test.ts` on purpose, so Vitest doesn't try to execute it directly.
+  codes, defaults, persistence, no-op on missing rooms, etc.). `roomStore.test.ts` runs it against
+  `InMemoryRoomStore`; `dynamoRoomStore.test.ts` runs the *same* suite against a real DynamoDB table
+  (skipped unless `DYNAMODB_TEST_TABLE` + AWS credentials are set — see `.env.local`). Run this suite
+  against any future `RoomStore` implementation before wiring it into `socketServer.ts`; that's the
+  intended safety net for a backend swap. The contract file isn't named `*.test.ts` on purpose, so
+  Vitest doesn't try to execute it directly.
 
 - Path alias `@/*` → `src/*` (`tsconfig.json`).

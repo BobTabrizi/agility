@@ -1,6 +1,7 @@
 # Agility
 
-A room-based app for team activities: planning poker, an anonymous feedback box, and plinko.
+A room-based app for team activities: planning poker, an anonymous feedback box, plinko, and a
+team randomizer.
 
 Anyone can create a room and share its link with their team. The creator becomes the room
 admin (tracked via a token stored in their browser, not an account); everyone else joins as a
@@ -18,10 +19,11 @@ Socket.IO connection.
 - **Room storage** sits behind a `RoomStore` interface (`src/server/roomStore.ts`) so the
   Socket.IO layer never depends on which backend is active. Defaults to `InMemoryRoomStore`
   (rooms live only in server memory — lost on restart). A `DynamoRoomStore`
-  (`src/server/dynamoRoomStore.ts`) also exists, backed by a real DynamoDB table; opt into it
-  with `ROOM_STORE=dynamodb` + `DYNAMODB_TABLE_NAME` (see `.env.example`). Either way, rooms with
-  no activity for 60 days are cleaned up — an app-level sweep for the in-memory store, DynamoDB's
-  native TTL for the Dynamo one.
+  (`src/server/dynamoRoomStore.ts`) also exists, backed by a real DynamoDB table; opt into it by
+  setting `ROOM_STORE=dynamodb` and `DYNAMODB_TABLE_NAME=<your table>` in `.env.local`, alongside
+  standard AWS credential/region env vars (`AWS_REGION`, `AWS_ACCESS_KEY_ID`,
+  `AWS_SECRET_ACCESS_KEY`, or a named profile). Either way, rooms with no activity for 60 days are
+  cleaned up — an app-level sweep for the in-memory store, DynamoDB's native TTL for the Dynamo one.
 
 ## Running locally
 
@@ -44,8 +46,9 @@ server.
   The server generates a 6-character room code and an admin token; the token is stored in
   `localStorage` on your device only (`agility:admin:<code>`) and is what marks you as admin when
   you connect.
-- **Join a room** via `/room/<CODE>` (the "Copy invite link" button in a room grabs this for you).
-  New participants just pick a display name — no account needed. Each browser gets a stable
+- **Join a room** via `/room/<CODE>` — the "Copy invite link" button in a room opens a modal with
+  the link, a QR code (scannable to join from a phone), and a one-click copy. New participants
+  just pick a display name — no account needed. Each browser gets a stable
   per-room identity (`agility:client:<code>` in `localStorage`), so refreshing the page or
   reconnecting reactivates the same roster entry rather than joining as a new person.
 - **Who's in the room**: the avatar cluster in the header shows who's currently connected;
@@ -57,7 +60,9 @@ server.
   - **Planning Poker** — deck is admin-customizable (numbers, sizes, or short text options),
     votes are hidden until the admin reveals them, then shows each vote plus the average of
     numeric votes. An anonymous-voting toggle hides who voted what (names stay visible, values
-    don't) and resets the round when flipped.
+    don't) and resets the round when flipped. Past rounds are kept as poker history (topic, votes,
+    average), reachable from the "⋯" menu next to the activity tabs — anonymous rounds stay
+    anonymous in history even if the toggle is switched off later.
   - **Feedback Box** — participants submit free-text feedback with no name attached; only the
     admin can see submitted messages (others just see a running submission count).
   - **Plinko** — admin enters a list of options, "Drop the ball" picks one at random server-side
@@ -67,8 +72,10 @@ server.
 
 ## Deploying (AWS, later)
 
-The app stays in-memory for now — no AWS resources are set up yet — but it's built to be
-container-deployable without changes:
+Nothing runs on AWS compute yet — the app still runs locally via `npm run dev`/`npm start` — but
+storage is already AWS-ready: `DynamoRoomStore` (see above) is real and tested against an actual
+DynamoDB table, just not the default. The app is also built to be container-deployable without
+changes:
 
 - A `Dockerfile` at the repo root builds and runs the app (`docker build -t agility .` /
   `docker run -p 3000:3000 agility`). It's a single, un-optimized stage (keeps devDependencies,
@@ -78,11 +85,11 @@ container-deployable without changes:
 - The server binds to `0.0.0.0` (not `localhost`), so it's reachable from outside the container.
 - `GET /api/health` returns `{ status: "ok" }` for use as an ALB target group / ECS task health
   check.
-- **Caveat for scaling to multiple instances**: room state lives in each server process's memory,
-  and Socket.IO needs a client to stay connected to the same instance it joined a room on. Running
-  more than one task/instance behind a load balancer will require either sticky sessions (session
-  affinity on the ALB) or moving room state to something shared (e.g. DynamoDB + a Socket.IO
-  Redis/DynamoDB adapter) — not needed for a single instance.
+- **Caveat for scaling to multiple instances**: switching to `DynamoRoomStore` solves the room-data
+  half of this (any instance can read/write any room), but Socket.IO still needs a client to stay
+  connected to the same instance it joined a room on — that half needs either sticky sessions
+  (session affinity on the ALB) or a Socket.IO adapter (typically Redis) so broadcasts reach
+  sockets connected to other instances. Not needed for a single instance.
 
 ## Notes / known limitations (fine for an MVP, worth revisiting before wider use)
 
