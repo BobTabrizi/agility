@@ -31,7 +31,12 @@ export function RoomShell({
           name={state.name}
           code={state.code}
           participants={state.participants}
+          appointedAdminIds={state.appointedAdminIds}
+          selfId={selfId}
           isAdmin={isAdmin}
+          onAppointAdmin={actions.appointAdmin}
+          onRevokeAdmin={actions.revokeAdmin}
+          onKick={actions.kick}
         />
 
         <div className="flex items-center justify-between gap-2">

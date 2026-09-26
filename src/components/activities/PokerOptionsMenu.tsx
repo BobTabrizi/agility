@@ -50,7 +50,7 @@ export function PokerOptionsMenu({
         className="flex h-8 w-8 items-center justify-center rounded-full border border-neutral-200 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-900"
       >
         <span aria-hidden className="text-lg leading-none">
-          ⋯
+          ⋮
         </span>
       </button>
 

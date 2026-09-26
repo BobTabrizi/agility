@@ -101,6 +101,13 @@ export interface PublicFeedbackState {
 /** What is sent to a given socket: feedback items are stripped for non-admins. */
 export type PublicRoomState = Omit<RoomState, "feedback"> & {
   feedback: PublicFeedbackState;
+  // Whether the socket receiving this state is an admin right now. Pushed
+  // with every broadcast (not just the join ack) so being appointed or
+  // removed as admin takes effect without a rejoin.
+  viewerIsAdmin: boolean;
+  // Participants made admin by another admin, as opposed to the room creator
+  // (who is also isAdmin but can't be removed). Their tokens stay server-side.
+  appointedAdminIds: string[];
 };
 
 export interface CreateRoomResponse {
@@ -112,5 +119,4 @@ export interface JoinAck {
   ok: boolean;
   error?: string;
   participantId?: string;
-  isAdmin?: boolean;
 }

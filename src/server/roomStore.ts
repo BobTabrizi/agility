@@ -6,7 +6,11 @@ const roomCodeAlphabet = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 6);
 const tokenAlphabet = customAlphabet("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", 24);
 
 export interface StoredRoom extends RoomState {
+  // The creator's token, minted with the room.
   adminToken: string;
+  // participantId -> token for admins appointed by another admin. Per-person
+  // (rather than handing out adminToken) so one can be revoked on its own.
+  appointedAdminTokens: Record<string, string>;
   lastActivityAt: number;
 }
 
@@ -53,6 +57,7 @@ export class InMemoryRoomStore implements RoomStore {
       createdAt: now,
       lastActivityAt: now,
       adminToken: tokenAlphabet(),
+      appointedAdminTokens: {},
       activeActivity: "poker",
       participants: [],
       poker: { topic: "", votes: {}, revealed: false, deck: [...DEFAULT_POKER_DECK], anonymous: false },

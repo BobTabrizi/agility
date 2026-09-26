@@ -28,7 +28,8 @@ type RoomItem = StoredRoom & { expiresAt: number };
 function fromItem(item: RoomItem): StoredRoom {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- discarding expiresAt on purpose
   const { expiresAt, ...room } = item;
-  return room;
+  // Backfill for rooms written before multi-admin existed.
+  return { ...room, appointedAdminTokens: room.appointedAdminTokens ?? {} };
 }
 
 function isConditionalCheckFailed(err: unknown): boolean {
@@ -72,6 +73,7 @@ export class DynamoRoomStore implements RoomStore {
         createdAt: now,
         lastActivityAt: now,
         adminToken: tokenAlphabet(),
+        appointedAdminTokens: {},
         activeActivity: "poker",
         participants: [],
         poker: { topic: "", votes: {}, revealed: false, deck: [...DEFAULT_POKER_DECK], anonymous: false },

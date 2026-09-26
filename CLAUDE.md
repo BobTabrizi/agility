@@ -57,11 +57,39 @@ all in-memory rooms (see below) — recreate any room you were testing against a
 - `roomStore` is stashed on `globalThis` (`__agilityRoomStore`) so it survives module re-evaluation
   across hot reloads in dev.
 
-- **Admin identity**: there are no accounts — whoever holds a room's `adminToken` is the admin. The
-  token is minted on room creation (`POST /api/rooms` → `roomStore.createRoom`) and stored client-side
-  per room code in `localStorage` (`src/lib/storage.ts`). On `room:join`, the server sets
-  `socket.data.isAdmin` by comparing the submitted token against `room.adminToken`; admin-only socket
-  handlers guard with `if (!requireAdmin(socket)) return;`.
+- **Admin identity**: there are no accounts — admin is whoever holds a valid admin token. The creator's
+  token (`room.adminToken`) is minted on room creation (`POST /api/rooms` → `roomStore.createRoom`);
+  any admin can appoint another *connected* participant (`admin:appoint`), which mints a separate
+  per-person token in `room.appointedAdminTokens` (participantId → token) and hands it to that
+  person's live socket(s) via `admin:granted`. The client stores it (same `localStorage` key as the
+  creator's, `src/lib/storage.ts`) and echoes it back with `room:auth`, so no rejoin is needed.
+  Appointed admins can be removed (`admin:revoke`, including stepping down yourself); the creator
+  can't, so a room always has at least one admin.
+  - Tokens, not participant ids, are what grant admin: participant ids are broadcast to every client,
+    so anything keyed on the id alone would let anyone claim it. Appointed tokens are also bound to
+    the participant they were issued to (`isRoomAdmin` in `socketServer.ts`). This is also why an
+    Away participant can't be appointed — there'd be no safe way to deliver their token later.
+  - `socket.data` holds the presented `adminToken`, never a cached `isAdmin` boolean: admin-only
+    handlers start with `const room = await loadRoomAsAdmin(socket); if (!room) return;`, which
+    re-checks the token against the room on every call, so a revocation takes effect immediately.
+  - Clients read their own admin status from `state.viewerIsAdmin` (set per socket in
+    `toPublicState()`), not the join ack, since it can change mid-session. `appointedAdminIds` tells
+    admins which roster entries are removable. `Participant.isAdmin` is only a roster display flag
+    ("is an admin of this room"): it's true for anyone in `appointedAdminTokens` even when their
+    current connection didn't present the token, so the roster never contradicts `appointedAdminIds`.
+  - **Kicking** (`participant:kick`): any admin can kick anyone except themselves and the creator.
+    It deletes the roster entry (not just Away), their poker vote, and any appointed admin token,
+    then emits `room:kicked` and disconnects every socket with that participant id. The disconnect
+    is server-side on purpose — Socket.IO clients don't auto-reconnect from those — which is also
+    why `useRoomConnection` calls `socket.connect()` when it mounts on a disconnected shared socket.
+    It is deliberately not a ban: the kicked person can rejoin (the kicked page has a Rejoin
+    button) and comes back as a fresh participant. Kicking an Away participant is how the roster
+    gets pruned.
+  - Admin actions on a person live in the roster's per-row "⋮" menu (`ParticipantMenu.tsx`), which
+    is `position: fixed` because the roster list scrolls and would clip an absolute dropdown.
+    Roster names are cut at `MAX_DISPLAY_NAME_LENGTH` (`truncateName`, `src/lib/participants.ts`);
+    the full-name tooltip is set on hover, since only the rendered width says whether CSS
+    `truncate` clipped it further.
 
 - **Two different kinds of "hidden" data**: `toPublicState()` in `socketServer.ts` is where
   server-side stripping happens — e.g. Feedback Box items are never sent to non-admin sockets at all.
@@ -72,6 +100,11 @@ all in-memory rooms (see below) — recreate any room you were testing against a
   UI-hidden case: for a round revealed under anonymous voting, `name` is recorded as `null` in the
   history entry itself, not just hidden client-side — so a past anonymous round stays anonymous even
   after the toggle is switched off.
+
+- **Two kinds of error on the client** (`useRoomConnection`): a failed `room:join` ack sets `error`
+  and is fatal (the room page shows "Couldn't join room"); a `room:error` event is one rejected
+  action, so it sets `notice` instead and is shown as a dismissible, auto-hiding `ErrorNotice` over
+  the still-working room. New server-side validation errors should go out as `room:error`.
 
 - **Round-reset convention**: any admin action that changes the rules of the current round (changing
   the poker deck, toggling anonymous voting) resets `votes`/`revealed` on the server, so votes cast

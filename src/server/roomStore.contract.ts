@@ -17,6 +17,7 @@ export function testRoomStoreContract(createStore: () => RoomStore) {
       expect(room.code).toMatch(/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/);
       expect(room.name).toBe("Platform Team");
       expect(room.adminToken).toBeTruthy();
+      expect(room.appointedAdminTokens).toEqual({});
       expect(room.activeActivity).toBe("poker");
       expect(room.participants).toEqual([]);
       expect(room.poker.votes).toEqual({});

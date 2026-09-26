@@ -2,21 +2,35 @@
 
 import { useEffect, useRef, useState } from "react";
 import { InviteModal } from "@/components/InviteModal";
+import { Modal } from "@/components/Modal";
+import { ParticipantMenu } from "@/components/ParticipantMenu";
+import { MAX_DISPLAY_NAME_LENGTH, truncateName } from "@/lib/participants";
 import type { Participant } from "@/lib/types";
 
 export function RoomHeader({
   name,
   code,
   participants,
+  appointedAdminIds,
+  selfId,
   isAdmin,
+  onAppointAdmin,
+  onRevokeAdmin,
+  onKick,
 }: {
   name: string;
   code: string;
   participants: Participant[];
+  appointedAdminIds: string[];
+  selfId: string;
   isAdmin: boolean;
+  onAppointAdmin: (participantId: string) => void;
+  onRevokeAdmin: (participantId: string) => void;
+  onKick: (participantId: string) => void;
 }) {
   const [rosterOpen, setRosterOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [kickTarget, setKickTarget] = useState<Participant | null>(null);
   const rosterRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -85,8 +99,13 @@ export function RoomHeader({
             )}
           </button>
 
+          {/* Opens rightward on phones, where the header stacks and the
+              avatars sit at the left edge; leftward from sm up, where they're
+              on the right. */}
           {rosterOpen && (
-            <div className="absolute right-0 top-full z-10 mt-2 w-56 rounded-xl border border-neutral-200 bg-white p-2 shadow-lg dark:border-neutral-800 dark:bg-neutral-900">
+            <div
+              className="absolute left-0 top-full z-10 mt-2 w-96 max-w-[calc(100vw-3rem)] rounded-xl border border-neutral-200 bg-white p-2 shadow-lg sm:left-auto sm:right-0 dark:border-neutral-800 dark:bg-neutral-900"
+            >
               <p className="px-2 pb-1.5 pt-1 text-xs font-semibold uppercase tracking-wide text-neutral-400">
                 {participants.length} joined this room
               </p>
@@ -105,17 +124,42 @@ export function RoomHeader({
                     >
                       {p.name.slice(0, 2).toUpperCase()}
                     </div>
-                    <span className="truncate text-neutral-800 dark:text-neutral-100">
-                      {p.name}
+                    {/* Cut at a fixed length, with `truncate` as a fallback when
+                        even that doesn't fit beside the row's labels. Whether to
+                        show the full-name tooltip is decided on hover, since only
+                        the rendered width says whether CSS clipped it too. */}
+                    <span
+                      className="min-w-0 truncate text-neutral-800 dark:text-neutral-100"
+                      onMouseEnter={(e) => {
+                        const el = e.currentTarget;
+                        const shortened =
+                          p.name.length > MAX_DISPLAY_NAME_LENGTH || el.scrollWidth > el.clientWidth;
+                        el.title = shortened ? p.name : "";
+                      }}
+                    >
+                      {truncateName(p.name)}
                     </span>
-                    {!p.connected && (
-                      <span className="shrink-0 text-xs text-neutral-400">Away</span>
+                    {isAdmin && (
+                      <ParticipantMenu
+                        participant={p}
+                        isSelf={p.id === selfId}
+                        isAppointed={appointedAdminIds.includes(p.id)}
+                        onAppointAdmin={() => onAppointAdmin(p.id)}
+                        onRevokeAdmin={() => onRevokeAdmin(p.id)}
+                        onKick={() => setKickTarget(p)}
+                      />
                     )}
-                    {p.isAdmin && (
-                      <span className="ml-auto shrink-0 text-xs font-medium text-indigo-600 dark:text-indigo-400">
-                        Admin
-                      </span>
-                    )}
+                    <div className="ml-auto flex shrink-0 items-center gap-1.5 pl-1">
+                      {!p.connected && <span className="text-xs text-neutral-400">Away</span>}
+                      {p.isAdmin && (
+                        <span
+                          className="text-xs font-medium text-indigo-600 dark:text-indigo-400"
+                          title={appointedAdminIds.includes(p.id) ? undefined : "Created this room"}
+                        >
+                          Admin
+                        </span>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -131,6 +175,37 @@ export function RoomHeader({
       </div>
 
       {inviteOpen && <InviteModal url={inviteUrl()} onClose={() => setInviteOpen(false)} />}
+
+      {kickTarget && (
+        <Modal title={`Kick ${kickTarget.name}?`} onClose={() => setKickTarget(null)}>
+          <p className="text-sm text-neutral-600 dark:text-neutral-300">
+            {kickTarget.connected
+              ? `${kickTarget.name} will be disconnected and removed from the room.`
+              : `${kickTarget.name} will be removed from the room's roster.`}
+            {appointedAdminIds.includes(kickTarget.id) && " They'll also lose admin."} They can rejoin
+            with the invite link.
+          </p>
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setKickTarget(null)}
+              className="rounded-lg border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onKick(kickTarget.id);
+                setKickTarget(null);
+              }}
+              className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-500"
+            >
+              Kick
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

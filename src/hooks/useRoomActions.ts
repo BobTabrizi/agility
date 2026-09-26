@@ -20,6 +20,9 @@ export function useRoomActions() {
       generateTeams: (names: string[], count: number) =>
         socket.emit("teams:generate", { names, count }),
       setActivity: (activity: ActivityType) => socket.emit("activity:set", { activity }),
+      appointAdmin: (participantId: string) => socket.emit("admin:appoint", { participantId }),
+      revokeAdmin: (participantId: string) => socket.emit("admin:revoke", { participantId }),
+      kick: (participantId: string) => socket.emit("participant:kick", { participantId }),
     };
   }, []);
 }
