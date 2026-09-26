@@ -8,7 +8,8 @@
     "start": "cross-env NODE_ENV=production tsx server.ts",
     "lint": "eslint",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:dynamo": "cross-env RUN_DYNAMODB_TESTS=1 vitest run src/server/dynamoRoomStore.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1138.0",

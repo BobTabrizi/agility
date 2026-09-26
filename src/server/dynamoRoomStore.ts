@@ -9,6 +9,7 @@ import {
 import { customAlphabet } from "nanoid";
 import { DEFAULT_POKER_DECK } from "@/lib/types";
 import type { RoomStore, StoredRoom } from "@/server/roomStore";
+import { RoomConflictError } from "@/server/roomUpdates";
 
 const roomCodeAlphabet = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 6);
 const tokenAlphabet = customAlphabet("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", 24);
@@ -28,8 +29,13 @@ type RoomItem = StoredRoom & { expiresAt: number };
 function fromItem(item: RoomItem): StoredRoom {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- discarding expiresAt on purpose
   const { expiresAt, ...room } = item;
-  // Backfill for rooms written before multi-admin existed.
-  return { ...room, appointedAdminTokens: room.appointedAdminTokens ?? {} };
+  // Backfill for rooms written before these fields existed. version 0 means
+  // "no version attribute yet" — see saveRoom.
+  return {
+    ...room,
+    appointedAdminTokens: room.appointedAdminTokens ?? {},
+    version: room.version ?? 0,
+  };
 }
 
 function isConditionalCheckFailed(err: unknown): boolean {
@@ -74,6 +80,7 @@ export class DynamoRoomStore implements RoomStore {
         lastActivityAt: now,
         adminToken: tokenAlphabet(),
         appointedAdminTokens: {},
+        version: 1,
         activeActivity: "poker",
         participants: [],
         poker: { topic: "", votes: {}, revealed: false, deck: [...DEFAULT_POKER_DECK], anonymous: false },
@@ -106,7 +113,70 @@ export class DynamoRoomStore implements RoomStore {
   }
 
   async saveRoom(room: StoredRoom): Promise<void> {
-    await this.client.send(new PutCommand({ TableName: this.tableName, Item: this.toItem(room) }));
+    const readVersion = room.version;
+    // A pre-versioning item (read back as version 0) has no version attribute
+    // to compare against, so match on its absence instead — while still
+    // requiring the room itself to exist, so a room that expired in the
+    // meantime isn't silently recreated.
+    const condition =
+      readVersion === 0
+        ? { ConditionExpression: "attribute_exists(code) AND attribute_not_exists(version)" }
+        : { ConditionExpression: "version = :read", ExpressionAttributeValues: { ":read": readVersion } };
+    try {
+      await this.client.send(
+        new PutCommand({
+          TableName: this.tableName,
+          Item: this.toItem({ ...room, version: readVersion + 1 }),
+          ...condition,
+        })
+      );
+    } catch (err) {
+      if (isConditionalCheckFailed(err)) throw new RoomConflictError(room.code);
+      throw err;
+    }
+    room.version = readVersion + 1;
+  }
+
+  async setVote(code: string, participantId: string, value: string | null): Promise<StoredRoom | undefined> {
+    const now = Date.now();
+    // if_not_exists: a pre-versioning item has no version attribute to add to.
+    const bookkeeping =
+      "version = if_not_exists(version, :zero) + :one, lastActivityAt = :now, expiresAt = :exp";
+    const vote =
+      value === null
+        ? { UpdateExpression: `REMOVE poker.votes.#participant SET ${bookkeeping}`, values: {} }
+        : { UpdateExpression: `SET poker.votes.#participant = :value, ${bookkeeping}`, values: { ":value": value } };
+    try {
+      const res = await this.client.send(
+        new UpdateCommand({
+          TableName: this.tableName,
+          Key: { code: code.toUpperCase() },
+          UpdateExpression: vote.UpdateExpression,
+          // Same rules the whole-room handler used to check after a read, now
+          // enforced by DynamoDB at write time. (Also fails if the room doesn't
+          // exist, since activeActivity is then missing.)
+          ConditionExpression:
+            value === null
+              ? "activeActivity = :poker AND poker.revealed = :false"
+              : "activeActivity = :poker AND poker.revealed = :false AND contains(poker.deck, :value)",
+          ExpressionAttributeNames: { "#participant": participantId },
+          ExpressionAttributeValues: {
+            ...vote.values,
+            ":poker": "poker",
+            ":false": false,
+            ":zero": 0,
+            ":one": 1,
+            ":now": now,
+            ":exp": Math.floor(now / 1000) + this.ttlSeconds,
+          },
+          ReturnValues: "ALL_NEW",
+        })
+      );
+      return fromItem(res.Attributes as RoomItem);
+    } catch (err) {
+      if (isConditionalCheckFailed(err)) return undefined;
+      throw err;
+    }
   }
 
   async touchRoom(code: string): Promise<void> {

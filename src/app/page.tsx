@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { getLastUsedDisplayName, setSessionDisplayName, setStoredAdminToken } from "@/lib/storage";
-import type { CreateRoomResponse } from "@/lib/types";
+import { MAX_ROOM_NAME_LENGTH, type CreateRoomResponse } from "@/lib/types";
 
 export default function HomePage() {
   const router = useRouter();
@@ -75,7 +75,7 @@ export default function HomePage() {
                 value={teamName}
                 onChange={(e) => setTeamName(e.target.value)}
                 placeholder="e.g. Platform Team"
-                maxLength={60}
+                maxLength={MAX_ROOM_NAME_LENGTH}
                 className="rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
               />
             </label>

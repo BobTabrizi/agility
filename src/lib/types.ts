@@ -7,6 +7,10 @@ export const ACTIVITIES: { id: ActivityType; label: string }[] = [
   { id: "teams", label: "Team Randomizer" },
 ];
 
+// Enforced by POST /api/rooms as well as the create form's maxLength — the
+// form alone doesn't stop a direct API call.
+export const MAX_ROOM_NAME_LENGTH = 60;
+
 // A name longer than this doesn't display well in the team-name editor or
 // the resulting team chips.
 export const MAX_TEAM_NAME_LENGTH = 60;
@@ -98,9 +102,19 @@ export interface PublicFeedbackState {
   items: FeedbackItem[] | null;
 }
 
-/** What is sent to a given socket: feedback items are stripped for non-admins. */
-export type PublicRoomState = Omit<RoomState, "feedback"> & {
+/**
+ * What is sent to a given socket on every change: feedback items are stripped
+ * for non-admins, and poker history isn't included — only a summary of it.
+ * The history itself is the bulk of the room at its 50-round cap and is only
+ * sent to someone who asks for it (opening the history dialog, via
+ * `poker:getHistory`).
+ */
+export type PublicRoomState = Omit<RoomState, "feedback" | "pokerHistory"> & {
   feedback: PublicFeedbackState;
+  // Enough to show "Poker history (N)" without the history itself.
+  // latestRevealedAt changes on every reveal (even once count is at the cap),
+  // so an open history dialog knows to reload.
+  pokerHistorySummary: { count: number; latestRevealedAt: number | null };
   // Whether the socket receiving this state is an admin right now. Pushed
   // with every broadcast (not just the join ack) so being appointed or
   // removed as admin takes effect without a rejoin.
@@ -108,7 +122,14 @@ export type PublicRoomState = Omit<RoomState, "feedback"> & {
   // Participants made admin by another admin, as opposed to the room creator
   // (who is also isAdmin but can't be removed). Their tokens stay server-side.
   appointedAdminIds: string[];
+  // The room's write counter. Only ever increases, so a client can ignore a
+  // snapshot older than one it already has (broadcasts from concurrent writes
+  // can arrive out of order).
+  version: number;
 };
+
+/** Reply to `poker:getHistory`. */
+export type PokerHistoryResponse = { ok: true; entries: PokerHistoryEntry[] } | { ok: false; error: string };
 
 export interface CreateRoomResponse {
   code: string;

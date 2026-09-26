@@ -2,24 +2,14 @@
 
 import { ACTIVITIES, type ActivityType } from "@/lib/types";
 
+/** Admin-only activity switcher; participants see the current activity in the room header. */
 export function ActivityTabs({
   active,
-  isAdmin,
   onChange,
 }: {
   active: ActivityType;
-  isAdmin: boolean;
   onChange: (activity: ActivityType) => void;
 }) {
-  if (!isAdmin) {
-    const current = ACTIVITIES.find((a) => a.id === active);
-    return (
-      <div className="inline-flex w-fit rounded-full bg-indigo-50 px-3 py-1 text-sm font-medium text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
-        {current?.label}
-      </div>
-    );
-  }
-
   return (
     <div className="inline-flex w-fit gap-1 rounded-full border border-neutral-200 bg-neutral-50 p-1 dark:border-neutral-800 dark:bg-neutral-900">
       {ACTIVITIES.map((a) => (

@@ -1,18 +1,59 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { formatRelativeTime } from "@/lib/time";
 import type { PokerHistoryEntry } from "@/lib/types";
 
+/**
+ * History isn't part of the pushed room state — it's fetched when this opens,
+ * and again whenever a new round is revealed while it's open
+ * (`latestRevealedAt` changes). A reload keeps showing the previous list
+ * until the new one arrives, rather than flashing back to "Loading…".
+ */
 export function PokerHistoryModal({
-  history,
+  latestRevealedAt,
+  onFetch,
   onClose,
 }: {
-  history: PokerHistoryEntry[];
+  latestRevealedAt: number | null;
+  onFetch: () => Promise<PokerHistoryEntry[]>;
   onClose: () => void;
 }) {
+  const [history, setHistory] = useState<PokerHistoryEntry[] | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    onFetch().then(
+      (entries) => {
+        if (cancelled) return;
+        setHistory(entries);
+        setFailed(false);
+      },
+      () => {
+        if (!cancelled) setFailed(true);
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [onFetch, latestRevealedAt]);
+
+  const title = history ? `Poker history (${history.length})` : "Poker history";
+
+  if (!history) {
+    return (
+      <Modal title={title} onClose={onClose}>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">
+          {failed ? "Couldn't load poker history. Close this and try again." : "Loading…"}
+        </p>
+      </Modal>
+    );
+  }
+
   return (
-    <Modal title={`Poker history (${history.length})`} onClose={onClose}>
+    <Modal title={title} onClose={onClose}>
       <div className="flex flex-col gap-3">
         {history.map((entry) => (
           <div

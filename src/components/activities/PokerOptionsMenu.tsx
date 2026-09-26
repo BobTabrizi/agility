@@ -6,12 +6,14 @@ import { PokerHistoryModal } from "@/components/activities/PokerHistoryModal";
 import type { PokerHistoryEntry } from "@/lib/types";
 
 export function PokerOptionsMenu({
-  history,
+  historySummary,
+  onFetchHistory,
   deck,
   isAdmin,
   onSetDeck,
 }: {
-  history: PokerHistoryEntry[];
+  historySummary: { count: number; latestRevealedAt: number | null };
+  onFetchHistory: () => Promise<PokerHistoryEntry[]>;
   deck: string[];
   isAdmin: boolean;
   onSetDeck: (deck: string[]) => void;
@@ -36,9 +38,6 @@ export function PokerOptionsMenu({
     };
   }, [menuOpen]);
 
-  // Nothing useful behind the menu for a non-admin until there's history to look at.
-  if (!isAdmin && history.length === 0) return null;
-
   return (
     <div className="relative" ref={menuRef}>
       <button
@@ -62,14 +61,14 @@ export function PokerOptionsMenu({
           <button
             type="button"
             role="menuitem"
-            disabled={history.length === 0}
+            disabled={historySummary.count === 0}
             onClick={() => {
               setOpenModal("history");
               setMenuOpen(false);
             }}
             className="block w-full px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent dark:text-neutral-200 dark:hover:bg-neutral-800"
           >
-            Poker history{history.length > 0 ? ` (${history.length})` : ""}
+            Poker history{historySummary.count > 0 ? ` (${historySummary.count})` : ""}
           </button>
           {isAdmin && (
             <button
@@ -88,7 +87,11 @@ export function PokerOptionsMenu({
       )}
 
       {openModal === "history" && (
-        <PokerHistoryModal history={history} onClose={() => setOpenModal(null)} />
+        <PokerHistoryModal
+          latestRevealedAt={historySummary.latestRevealedAt}
+          onFetch={onFetchHistory}
+          onClose={() => setOpenModal(null)}
+        />
       )}
       {openModal === "deck" && (
         <PokerDeckModal deck={deck} onSetDeck={onSetDeck} onClose={() => setOpenModal(null)} />

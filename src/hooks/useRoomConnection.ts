@@ -65,7 +65,11 @@ export function useRoomConnection({
     }
 
     function onState(s: PublicRoomState) {
-      if (!cancelled) setState(s);
+      if (cancelled) return;
+      // Keep the newest snapshot: broadcasts from concurrent writes can arrive
+      // out of order. Equal versions still apply — e.g. room:auth re-sends the
+      // same version with admin-only data now included.
+      setState((prev) => (prev && prev.code === s.code && prev.version > s.version ? prev : s));
     }
     function onRoomError(e: { message: string }) {
       if (!cancelled) setNotice({ id: Date.now(), message: e.message });

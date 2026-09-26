@@ -23,6 +23,9 @@ export function RoomShell({
   const actions = useRoomActions();
   const connectedParticipants = state.participants.filter((p) => p.connected);
   const activeMemberNames = activeParticipantNames(state.participants);
+  // Nothing useful behind the poker menu for a non-admin until there's history to look at.
+  const showPokerOptions =
+    state.activeActivity === "poker" && (isAdmin || state.pokerHistorySummary.count > 0);
 
   return (
     <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
@@ -31,6 +34,7 @@ export function RoomShell({
           name={state.name}
           code={state.code}
           participants={state.participants}
+          activeActivity={state.activeActivity}
           appointedAdminIds={state.appointedAdminIds}
           selfId={selfId}
           isAdmin={isAdmin}
@@ -39,17 +43,26 @@ export function RoomShell({
           onKick={actions.kick}
         />
 
-        <div className="flex items-center justify-between gap-2">
-          <ActivityTabs active={state.activeActivity} isAdmin={isAdmin} onChange={actions.setActivity} />
-          {state.activeActivity === "poker" && (
-            <PokerOptionsMenu
-              history={state.pokerHistory}
-              deck={state.poker.deck}
-              isAdmin={isAdmin}
-              onSetDeck={actions.setDeck}
-            />
-          )}
-        </div>
+        {/* Participants see the current activity in the header, so this row is
+            the admin's activity switcher plus the poker menu — and isn't
+            rendered at all when a participant has neither, so it doesn't leave
+            an empty gap. */}
+        {(isAdmin || showPokerOptions) && (
+          <div className="flex items-center gap-2">
+            {isAdmin && <ActivityTabs active={state.activeActivity} onChange={actions.setActivity} />}
+            {showPokerOptions && (
+              <div className="ml-auto">
+                <PokerOptionsMenu
+                  historySummary={state.pokerHistorySummary}
+                  onFetchHistory={actions.fetchPokerHistory}
+                  deck={state.poker.deck}
+                  isAdmin={isAdmin}
+                  onSetDeck={actions.setDeck}
+                />
+              </div>
+            )}
+          </div>
+        )}
 
         {state.activeActivity === "poker" && (
           <PlanningPoker
