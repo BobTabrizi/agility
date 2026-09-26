@@ -64,11 +64,31 @@ port 3000 keeps answering — check which process owns the port before assuming 
   `ROOM_STORE=dynamodb` + `DYNAMODB_TABLE_NAME` (plus AWS credentials) to use it instead; unset,
   nothing changes. Every room-changing socket handler in `socketServer.ts` follows the same shape:
   validate the payload, then `changeRoom(socket, { adminOnly? }, (room) => { ...mutate room... })`,
-  which saves it and broadcasts the room state to everyone in that room's Socket.IO channel (grouped,
-  and minus poker history — see "Broadcasts" below).
+  which saves it and broadcasts the room state to everyone in that room's Socket.IO channel (grouped
+  — see "Broadcasts" below).
   Clients never mutate activity state locally — they call an action from `src/hooks/useRoomActions.ts`
   (a thin wrapper emitting a socket event) and wait for the resulting broadcast to update the UI via
   `useRoomConnection`.
+
+- **A room is one main record plus two lists stored beside it**, not inside it: poker history rounds
+  and feedback submissions. The room (`StoredRoom`) only carries counts for them
+  (`pokerHistorySummary`, `feedback.submissionCount`). In DynamoDB (layout comment at the top of
+  `dynamoRoomStore.ts`) that's one table keyed `pk` = room code + `sk`: `ROOM`, `HISTORY#<time>#<id>`,
+  `FEEDBACK#<time>#<id>`. Why: DynamoDB bills every write by the whole item's size, so history inside
+  the room made each vote ~70x dearer at the 50-round cap; and items max out at 400 KB, which
+  uncapped feedback inside the room could eventually hit and break the room. Consequences:
+  - A reveal writes the room and its history round in one DynamoDB transaction (`saveRoom(room,
+    historyEntry)`, reached by returning `{ addPokerHistory }` from a `changeRoom` change), so a
+    retried reveal can't duplicate or orphan a round. A plain write that lands on the room
+    mid-transaction gets `TransactionConflictException`; `setVote`/`addFeedback` retry that briefly.
+  - Feedback submissions are deliberately *not* a transaction (bursts of transactions on one room
+    cancel each other): `addFeedback` stores the item, then bumps the count in one `UpdateItem`.
+  - History and feedback items expire 60 days after they're *created* (the room's TTL is pushed out
+    on every write instead), so old entries age out of a long-lived room on their own. Lists come
+    from one `Query` on the sort-key prefix, newest first; history is capped at the newest
+    `MAX_POKER_HISTORY` (50) when read, not when written.
+  - A new room's starting state comes from `newRoom()` (`src/server/newRoom.ts`), shared by both
+    stores — add a default for any new `StoredRoom` field there, not per store.
 
 - **Concurrent writes — never `getRoom` + `saveRoom` by hand.** Two handlers editing the same room at
   once (two people voting) used to silently lose one change: each loaded the room, changed its own
@@ -89,8 +109,9 @@ port 3000 keeps answering — check which process owns the port before assuming 
     (`createKeyedQueue`), so a burst from one instance runs one at a time instead of piling into
     retries; the version check then only has to catch writes from other instances. Each queued
     update costs a read + a write (~60ms from a dev machine to AWS, a few ms in-region).
-  - **Votes are the exception** — the burstiest write (everyone votes at once), so they skip all of
-    the above: `RoomStore.setVote` writes just that voter's field (a DynamoDB `UpdateItem` on
+  - **Votes and feedback submissions are the exception** — the burstiest writes (everyone votes or
+    submits at once), so they skip all of the above. `RoomStore.addFeedback` is described above;
+    `RoomStore.setVote` writes just that voter's field (a DynamoDB `UpdateItem` on
     `poker.votes.<participantId>`), with the rules (poker active, not revealed, card is in the
     current deck) as a condition checked at write time. No read, no queue, no conflicts between
     voters. It still bumps `version`, which is what lets the two paths mix: a whole-room save that
@@ -109,13 +130,12 @@ port 3000 keeps answering — check which process owns the port before assuming 
     version. A 40-vote burst reaches each client as ~4–11 updates instead of 40. Each broadcast is
     one JSON serialization per connected socket (admins and participants get different views), so
     this is where the CPU goes in a busy room.
-  - Poker history is *not* pushed at all (`PublicRoomState` omits it; it's most of the room's size at
-    its 50-round cap — ~70 KB with 40 voters, vs ~4 KB for the rest). Rooms carry only
-    `pokerHistorySummary` (count + newest reveal time, for the menu label). The history dialog
-    fetches it on demand with `poker:getHistory` (a request/ack, `fetchPokerHistory` in
-    `useRoomActions`) when it opens, and refetches if `latestRevealedAt` changes while it's open —
-    so only people who actually look at history ever download it. Anything else that's large and
-    only occasionally viewed should follow the same pattern.
+  - Poker history and feedback text are never pushed — only their counts, which ride along in the
+    room. They're fetched on demand with a request/ack (`poker:getHistory` / `feedback:getItems`,
+    `fetchPokerHistory` / `fetchFeedbackItems` in `useRoomActions`): the history dialog fetches when
+    it opens, the admin's Feedback Box when it's shown, and each refetches when its count (or
+    `latestRevealedAt`) changes while open — so only people actually looking download the lists.
+    Anything else that's large and only occasionally viewed should follow the same pattern.
 
 - `roomStore` is stashed on `globalThis` (`__agilityRoomStore`) so it survives module re-evaluation
   across hot reloads in dev.
@@ -155,8 +175,9 @@ port 3000 keeps answering — check which process owns the port before assuming 
     the full-name tooltip is set on hover, since only the rendered width says whether CSS
     `truncate` clipped it further.
 
-- **Two different kinds of "hidden" data**: `toPublicState()` in `socketServer.ts` is where
-  server-side stripping happens — e.g. Feedback Box items are never sent to non-admin sockets at all.
+- **Two different kinds of "hidden" data**: some data is withheld server-side — Feedback Box text
+  is never sent to non-admins at all (`feedback:getItems` checks `isRoomAdmin`; `toPublicState()` in
+  `socketServer.ts` is where per-socket stripping of pushed state would go).
   Planning Poker's anonymous-voting mode is different: vote values are sent to every client as usual,
   and the UI (`PlanningPoker.tsx`) simply declines to render the per-person mapping. If anonymity ever
   needs to be enforced server-side, that's a `toPublicState()`-style change, not a UI change.
@@ -195,11 +216,13 @@ port 3000 keeps answering — check which process owns the port before assuming 
   `testRoomStoreContract(createStore)`, a shared Vitest suite describing the behavior any `RoomStore`
   implementation must have: case-insensitive codes, defaults, persistence, no-op on missing rooms,
   the optimistic-concurrency rules (copies on read, stale saves rejected, concurrent `updateRoom`
-  calls all applied) and `setVote` (concurrent voters all land, disallowed votes ignored, and a vote
-  makes an older whole-room copy stale). `roomStore.test.ts` runs it against `InMemoryRoomStore`;
-  `dynamoRoomStore.test.ts` runs the *same* suite against a real DynamoDB table, plus cases for items
-  written before versioning existed (only via `npm run test:dynamo`; also needs `DYNAMODB_TEST_TABLE`
-  + AWS credentials — see `.env.local`). Run this suite against any future `RoomStore` implementation
+  calls all applied), `setVote` (concurrent voters all land, disallowed votes ignored, and a vote
+  makes an older whole-room copy stale), poker history (atomic with the room save — a rejected save
+  stores no round; newest first; limit), `addFeedback` (concurrent submissions all land, nothing
+  stored for a missing room), and `deleteRoom` taking the lists with it. `roomStore.test.ts` runs it
+  against `InMemoryRoomStore`; `dynamoRoomStore.test.ts` runs the *same* suite against a real
+  DynamoDB table (only via `npm run test:dynamo`; also needs `DYNAMODB_TEST_TABLE` + AWS credentials
+  — see `.env.local`). Run this suite against any future `RoomStore` implementation
   before wiring it into `socketServer.ts`; that's the intended safety net for a backend swap. The
   contract file isn't named `*.test.ts` on purpose, so Vitest doesn't try to execute it directly.
 

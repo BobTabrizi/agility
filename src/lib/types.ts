@@ -65,8 +65,24 @@ export interface FeedbackItem {
   createdAt: number;
 }
 
+// Poker history and feedback items are stored as their own items next to the
+// room (see DynamoRoomStore), not inside it — the room only carries counts.
+// Both lists are fetched on demand: history by anyone opening the history
+// dialog (`poker:getHistory`), feedback items by admins viewing the Feedback
+// Box (`feedback:getItems`).
+
+/** The newest this many rounds are what the history dialog shows. */
+export const MAX_POKER_HISTORY = 50;
+
+export interface PokerHistorySummary {
+  // Rounds ever recorded (the dialog shows at most MAX_POKER_HISTORY of them).
+  count: number;
+  // Changes on every reveal, so an open history dialog knows to reload.
+  latestRevealedAt: number | null;
+}
+
 export interface FeedbackState {
-  items: FeedbackItem[];
+  // Changes on every submission, so an admin's open list knows to reload.
   submissionCount: number;
 }
 
@@ -90,31 +106,14 @@ export interface RoomState {
   activeActivity: ActivityType;
   participants: Participant[];
   poker: PokerState;
-  pokerHistory: PokerHistoryEntry[];
+  pokerHistorySummary: PokerHistorySummary;
   feedback: FeedbackState;
   plinko: PlinkoState;
   teams: TeamsState;
 }
 
-/** Feedback as seen by a given socket: items are stripped for non-admins. */
-export interface PublicFeedbackState {
-  submissionCount: number;
-  items: FeedbackItem[] | null;
-}
-
-/**
- * What is sent to a given socket on every change: feedback items are stripped
- * for non-admins, and poker history isn't included — only a summary of it.
- * The history itself is the bulk of the room at its 50-round cap and is only
- * sent to someone who asks for it (opening the history dialog, via
- * `poker:getHistory`).
- */
-export type PublicRoomState = Omit<RoomState, "feedback" | "pokerHistory"> & {
-  feedback: PublicFeedbackState;
-  // Enough to show "Poker history (N)" without the history itself.
-  // latestRevealedAt changes on every reveal (even once count is at the cap),
-  // so an open history dialog knows to reload.
-  pokerHistorySummary: { count: number; latestRevealedAt: number | null };
+/** What is sent to a given socket on every change. */
+export type PublicRoomState = RoomState & {
   // Whether the socket receiving this state is an admin right now. Pushed
   // with every broadcast (not just the join ack) so being appointed or
   // removed as admin takes effect without a rejoin.
@@ -128,8 +127,11 @@ export type PublicRoomState = Omit<RoomState, "feedback" | "pokerHistory"> & {
   version: number;
 };
 
-/** Reply to `poker:getHistory`. */
+/** Reply to `poker:getHistory` — newest first, at most MAX_POKER_HISTORY. */
 export type PokerHistoryResponse = { ok: true; entries: PokerHistoryEntry[] } | { ok: false; error: string };
+
+/** Reply to `feedback:getItems` (admins only) — newest first. */
+export type FeedbackItemsResponse = { ok: true; items: FeedbackItem[] } | { ok: false; error: string };
 
 export interface CreateRoomResponse {
   code: string;

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { FeedbackItem, PokerHistoryEntry } from "@/lib/types";
 import type { RoomStore } from "@/server/roomStore";
 import { RoomConflictError, SKIP, updateRoom } from "@/server/roomUpdates";
 
@@ -24,8 +25,10 @@ export function testRoomStoreContract(createStore: () => RoomStore) {
       expect(room.poker.votes).toEqual({});
       expect(room.poker.revealed).toBe(false);
       expect(room.poker.deck.length).toBeGreaterThan(0);
-      expect(room.pokerHistory).toEqual([]);
-      expect(room.feedback).toEqual({ items: [], submissionCount: 0 });
+      expect(room.pokerHistorySummary).toEqual({ count: 0, latestRevealedAt: null });
+      expect(room.feedback).toEqual({ submissionCount: 0 });
+      expect(await store.listPokerHistory(room.code, 50)).toEqual([]);
+      expect(await store.listFeedback(room.code)).toEqual([]);
       expect(room.plinko).toEqual({ options: [], isRunning: false, winner: null, seed: null });
       expect(room.teams).toEqual({ names: [], teamCount: 2, teams: [] });
       expect(room.lastActivityAt).toBe(room.createdAt);
@@ -116,6 +119,18 @@ export function testRoomStoreContract(createStore: () => RoomStore) {
       const room = await store.createRoom("Team");
       await store.deleteRoom(room.code);
       expect(await store.getRoom(room.code)).toBeUndefined();
+    });
+
+    it("also removes its poker history and feedback", async () => {
+      const store = createStore();
+      const { code } = await store.createRoom("Team");
+      await updateRoom(store, code, () => ({ addPokerHistory: historyEntry("r1", 1_000) }));
+      await store.addFeedback(code, feedbackItem("f1", 1_000));
+
+      await store.deleteRoom(code);
+
+      expect(await store.listPokerHistory(code, 50)).toEqual([]);
+      expect(await store.listFeedback(code)).toEqual([]);
     });
 
     it("is a no-op for a room that doesn't exist", async () => {
@@ -275,4 +290,104 @@ export function testRoomStoreContract(createStore: () => RoomStore) {
       expect(room.poker.votes).toEqual({ alice: "5" });
     });
   });
+
+  describe("poker history", () => {
+    it("adds a round atomically with the room save, listed newest first", async () => {
+      const store = createStore();
+      const { code } = await store.createRoom("Team");
+
+      for (const [id, at] of [["r1", 1_000], ["r2", 2_000], ["r3", 3_000]] as const) {
+        const result = await updateRoom(store, code, (room) => {
+          room.pokerHistorySummary = { count: room.pokerHistorySummary.count + 1, latestRevealedAt: at };
+          return { addPokerHistory: historyEntry(id, at) };
+        });
+        expect(result.status).toBe("saved");
+      }
+
+      expect((await store.listPokerHistory(code, 50)).map((e) => e.id)).toEqual(["r3", "r2", "r1"]);
+      expect((await store.getRoom(code))!.pokerHistorySummary).toEqual({ count: 3, latestRevealedAt: 3_000 });
+    });
+
+    it("returns at most `limit` rounds — the newest ones", async () => {
+      const store = createStore();
+      const { code } = await store.createRoom("Team");
+      for (let i = 1; i <= 4; i++) {
+        await updateRoom(store, code, () => ({ addPokerHistory: historyEntry(`r${i}`, i * 1_000) }));
+      }
+      expect((await store.listPokerHistory(code, 2)).map((e) => e.id)).toEqual(["r4", "r3"]);
+    });
+
+    // The point of saving them together: a reveal that loses a conflict must
+    // not leave its round behind, or the retry would record it twice.
+    it("doesn't store the round when the room save is rejected as stale", async () => {
+      const store = createStore();
+      const { code } = await store.createRoom("Team");
+      const stale = (await store.getRoom(code))!;
+      await store.setVote(code, "alice", "5"); // makes `stale` out of date
+
+      await expect(store.saveRoom(stale, historyEntry("lost", 1_000))).rejects.toBeInstanceOf(RoomConflictError);
+      expect(await store.listPokerHistory(code, 50)).toEqual([]);
+    });
+
+    it("keeps the full entry, including anonymous (null) names", async () => {
+      const store = createStore();
+      const { code } = await store.createRoom("Team");
+      const entry: PokerHistoryEntry = {
+        ...historyEntry("r1", 1_000),
+        anonymous: true,
+        votes: [{ name: null, value: "5" }, { name: null, value: "?" }],
+        average: 5,
+      };
+      await updateRoom(store, code, () => ({ addPokerHistory: entry }));
+      expect(await store.listPokerHistory(code, 50)).toEqual([entry]);
+    });
+  });
+
+  describe("addFeedback", () => {
+    it("stores a submission and bumps the count and version", async () => {
+      const store = createStore();
+      const { code } = await store.createRoom("Team");
+
+      const room = await store.addFeedback(code, feedbackItem("f1", 1_000));
+      expect(room?.feedback.submissionCount).toBe(1);
+      expect(room?.version).toBe(2);
+
+      await store.addFeedback(code, feedbackItem("f2", 2_000));
+      expect(await store.listFeedback(code)).toEqual([feedbackItem("f2", 2_000), feedbackItem("f1", 1_000)]);
+    });
+
+    it("lands every submission when many arrive at once", async () => {
+      const store = createStore();
+      const { code } = await store.createRoom("Team");
+      const items = Array.from({ length: 8 }, (_, i) => feedbackItem(`f${i}`, 1_000 + i));
+
+      const results = await Promise.all(items.map((item) => store.addFeedback(code, item)));
+
+      expect(results.every(Boolean)).toBe(true);
+      expect((await store.listFeedback(code)).length).toBe(items.length);
+      expect((await store.getRoom(code))!.feedback.submissionCount).toBe(items.length);
+    });
+
+    it("makes an older whole-room copy stale, like a vote does", async () => {
+      const store = createStore();
+      const { code } = await store.createRoom("Team");
+      const readBefore = (await store.getRoom(code))!;
+      await store.addFeedback(code, feedbackItem("f1", 1_000));
+      await expect(store.saveRoom(readBefore)).rejects.toBeInstanceOf(RoomConflictError);
+    });
+
+    it("stores nothing for a room that doesn't exist", async () => {
+      const store = createStore();
+      expect(await store.addFeedback("NOPE99", feedbackItem("f1", 1_000))).toBeUndefined();
+      expect(await store.listFeedback("NOPE99")).toEqual([]);
+    });
+  });
+}
+
+function historyEntry(id: string, revealedAt: number): PokerHistoryEntry {
+  return { id, topic: `Story ${id}`, revealedAt, anonymous: false, votes: [{ name: "Alice", value: "5" }], average: 5 };
+}
+
+function feedbackItem(id: string, createdAt: number): FeedbackItem {
+  return { id, text: `Feedback ${id}`, createdAt };
 }

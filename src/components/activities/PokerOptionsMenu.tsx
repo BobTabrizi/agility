@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { PokerDeckModal } from "@/components/activities/PokerDeckModal";
 import { PokerHistoryModal } from "@/components/activities/PokerHistoryModal";
-import type { PokerHistoryEntry } from "@/lib/types";
+import { MAX_POKER_HISTORY, type PokerHistoryEntry, type PokerHistorySummary } from "@/lib/types";
 
 export function PokerOptionsMenu({
   historySummary,
@@ -12,13 +12,15 @@ export function PokerOptionsMenu({
   isAdmin,
   onSetDeck,
 }: {
-  historySummary: { count: number; latestRevealedAt: number | null };
+  historySummary: PokerHistorySummary;
   onFetchHistory: () => Promise<PokerHistoryEntry[]>;
   deck: string[];
   isAdmin: boolean;
   onSetDeck: (deck: string[]) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  // The dialog shows the newest MAX_POKER_HISTORY rounds; count is every round recorded.
+  const shownRounds = Math.min(historySummary.count, MAX_POKER_HISTORY);
   const [openModal, setOpenModal] = useState<"history" | "deck" | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -61,14 +63,14 @@ export function PokerOptionsMenu({
           <button
             type="button"
             role="menuitem"
-            disabled={historySummary.count === 0}
+            disabled={shownRounds === 0}
             onClick={() => {
               setOpenModal("history");
               setMenuOpen(false);
             }}
             className="block w-full px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent dark:text-neutral-200 dark:hover:bg-neutral-800"
           >
-            Poker history{historySummary.count > 0 ? ` (${historySummary.count})` : ""}
+            Poker history{shownRounds > 0 ? ` (${shownRounds})` : ""}
           </button>
           {isAdmin && (
             <button

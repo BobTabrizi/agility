@@ -2,7 +2,13 @@
 
 import { useMemo } from "react";
 import { getSocket } from "@/lib/socketClient";
-import type { ActivityType, PokerHistoryEntry, PokerHistoryResponse } from "@/lib/types";
+import type {
+  ActivityType,
+  FeedbackItem,
+  FeedbackItemsResponse,
+  PokerHistoryEntry,
+  PokerHistoryResponse,
+} from "@/lib/types";
 
 export function useRoomActions() {
   return useMemo(() => {
@@ -29,6 +35,12 @@ export function useRoomActions() {
         const res: PokerHistoryResponse = await socket.timeout(10_000).emitWithAck("poker:getHistory");
         if (!res.ok) throw new Error(res.error);
         return res.entries;
+      },
+      // Same idea for the admin's Feedback Box: submissions are fetched, not pushed.
+      fetchFeedbackItems: async (): Promise<FeedbackItem[]> => {
+        const res: FeedbackItemsResponse = await socket.timeout(10_000).emitWithAck("feedback:getItems");
+        if (!res.ok) throw new Error(res.error);
+        return res.items;
       },
     };
   }, []);

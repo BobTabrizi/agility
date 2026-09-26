@@ -1,3 +1,4 @@
+import type { PokerHistoryEntry } from "@/lib/types";
 import type { RoomStore, StoredRoom } from "@/server/roomStore";
 
 /**
@@ -24,7 +25,14 @@ export class RoomBusyError extends Error {
 /** Return from an `updateRoom` change to abort without saving (nothing to do). */
 export const SKIP = Symbol("skip");
 
-export type RoomChange = (room: StoredRoom) => void | typeof SKIP | { error: string };
+/**
+ * What a change can return: nothing (save the room), SKIP, `{ error }`, or
+ * `{ addPokerHistory }` — save the room *and* add that history round, as one
+ * atomic write (see RoomStore.saveRoom).
+ */
+export type RoomChange = (
+  room: StoredRoom
+) => void | typeof SKIP | { error: string } | { addPokerHistory: PokerHistoryEntry };
 
 export type UpdateResult =
   | { status: "saved"; room: StoredRoom }
@@ -46,8 +54,9 @@ const BACKOFF_CAP_MS = 500;
  * room it's given (ids, timestamps, random picks are fine — each attempt just
  * makes fresh ones) and must not have side effects like emitting to sockets;
  * do those after, using the returned room. `change` can mutate the room and
- * return nothing to save, return `SKIP` to save nothing, or return
- * `{ error }` to reject the action (also saves nothing).
+ * return nothing to save, return `SKIP` to save nothing, return `{ error }`
+ * to reject the action (also saves nothing), or return `{ addPokerHistory }`
+ * to save along with a new history round.
  */
 export async function updateRoom(store: RoomStore, code: string, change: RoomChange): Promise<UpdateResult> {
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -59,7 +68,7 @@ export async function updateRoom(store: RoomStore, code: string, change: RoomCha
     if (outcome && "error" in outcome) return { status: "rejected", error: outcome.error };
 
     try {
-      await store.saveRoom(room);
+      await store.saveRoom(room, outcome?.addPokerHistory);
       return { status: "saved", room };
     } catch (err) {
       if (!(err instanceof RoomConflictError)) throw err;

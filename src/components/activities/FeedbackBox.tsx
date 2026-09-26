@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
-import type { PublicFeedbackState } from "@/lib/types";
+import { useEffect, useState, type FormEvent } from "react";
+import type { FeedbackItem, FeedbackState } from "@/lib/types";
 
 function timeAgo(ts: number): string {
   const seconds = Math.max(0, Math.floor((Date.now() - ts) / 1000));
@@ -12,14 +12,74 @@ function timeAgo(ts: number): string {
   return `${hours}h ago`;
 }
 
+/**
+ * Feedback text isn't part of the pushed room state (only the count is) —
+ * the admin view fetches it when shown, and again whenever the submission
+ * count changes. A reload keeps showing the previous list until the new one
+ * arrives, rather than flashing back to "Loading…".
+ */
+function AdminFeedbackList({
+  submissionCount,
+  onFetch,
+}: {
+  submissionCount: number;
+  onFetch: () => Promise<FeedbackItem[]>;
+}) {
+  const [items, setItems] = useState<FeedbackItem[] | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    onFetch().then(
+      (fetched) => {
+        if (cancelled) return;
+        setItems(fetched);
+        setFailed(false);
+      },
+      () => {
+        if (!cancelled) setFailed(true);
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [onFetch, submissionCount]);
+
+  if (!items) {
+    return (
+      <p className="text-sm text-neutral-400">
+        {failed ? "Couldn't load feedback. Switch activities and back to retry." : "Loading…"}
+      </p>
+    );
+  }
+  if (items.length === 0) {
+    return <p className="text-sm text-neutral-400">No feedback yet.</p>;
+  }
+  return (
+    <ul className="flex flex-col gap-3">
+      {items.map((item) => (
+        <li
+          key={item.id}
+          className="rounded-xl border border-neutral-200 bg-neutral-50 p-3 text-sm text-neutral-800 dark:border-neutral-800 dark:bg-neutral-800/60 dark:text-neutral-100"
+        >
+          <p className="whitespace-pre-wrap">{item.text}</p>
+          <p className="mt-2 text-xs text-neutral-400">{timeAgo(item.createdAt)}</p>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function FeedbackBox({
   feedback,
   isAdmin,
   onSubmit,
+  onFetchItems,
 }: {
-  feedback: PublicFeedbackState;
+  feedback: FeedbackState;
   isAdmin: boolean;
   onSubmit: (text: string) => void;
+  onFetchItems: () => Promise<FeedbackItem[]>;
 }) {
   const [text, setText] = useState("");
   const [justSubmitted, setJustSubmitted] = useState(false);
@@ -40,21 +100,7 @@ export function FeedbackBox({
         <p className="mb-4 text-sm font-medium text-neutral-500 dark:text-neutral-400">
           {feedback.submissionCount} submission{feedback.submissionCount === 1 ? "" : "s"} — fully anonymous
         </p>
-        {feedback.items && feedback.items.length > 0 ? (
-          <ul className="flex flex-col gap-3">
-            {feedback.items.map((item) => (
-              <li
-                key={item.id}
-                className="rounded-xl border border-neutral-200 bg-neutral-50 p-3 text-sm text-neutral-800 dark:border-neutral-800 dark:bg-neutral-800/60 dark:text-neutral-100"
-              >
-                <p className="whitespace-pre-wrap">{item.text}</p>
-                <p className="mt-2 text-xs text-neutral-400">{timeAgo(item.createdAt)}</p>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-neutral-400">No feedback yet.</p>
-        )}
+        <AdminFeedbackList submissionCount={feedback.submissionCount} onFetch={onFetchItems} />
       </div>
     );
   }

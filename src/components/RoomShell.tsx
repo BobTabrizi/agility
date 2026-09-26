@@ -79,7 +79,12 @@ export function RoomShell({
         )}
 
         {state.activeActivity === "feedback" && (
-          <FeedbackBox feedback={state.feedback} isAdmin={isAdmin} onSubmit={actions.submitFeedback} />
+          <FeedbackBox
+            feedback={state.feedback}
+            isAdmin={isAdmin}
+            onSubmit={actions.submitFeedback}
+            onFetchItems={actions.fetchFeedbackItems}
+          />
         )}
 
         {state.activeActivity === "plinko" && (

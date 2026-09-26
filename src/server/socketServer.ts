@@ -14,10 +14,12 @@ import {
 import {
   ACTIVITIES,
   MAX_POKER_CARD_LENGTH,
+  MAX_POKER_HISTORY,
   MAX_TEAM_COUNT,
   MAX_TEAM_NAME_LENGTH,
   type ActivityType,
   type FeedbackItem,
+  type FeedbackItemsResponse,
   type JoinAck,
   type PokerHistoryEntry,
   type PokerHistoryResponse,
@@ -43,7 +45,6 @@ const MAX_PLINKO_OPTIONS = 100;
 const MAX_PLINKO_OPTION_LENGTH = 200;
 const MAX_POKER_DECK_SIZE = 30;
 const MAX_TEAM_NAMES = 200;
-const MAX_POKER_HISTORY = 50;
 
 const BUSY_MESSAGE = "The room is busy right now — please try that again.";
 
@@ -76,16 +77,10 @@ function toPublicState(room: StoredRoom, isAdmin: boolean): PublicRoomState {
     activeActivity: room.activeActivity,
     participants: room.participants,
     poker: room.poker,
-    pokerHistorySummary: {
-      count: room.pokerHistory.length,
-      latestRevealedAt: room.pokerHistory[0]?.revealedAt ?? null,
-    },
+    pokerHistorySummary: room.pokerHistorySummary,
     plinko: room.plinko,
     teams: room.teams,
-    feedback: {
-      submissionCount: room.feedback.submissionCount,
-      items: isAdmin ? room.feedback.items : null,
-    },
+    feedback: room.feedback,
     viewerIsAdmin: isAdmin,
     appointedAdminIds: Object.keys(room.appointedAdminTokens),
     version: room.version,
@@ -160,7 +155,7 @@ async function changeRoom(
   const result = await tryUpdateRoom(data.code, (room) => {
     if (options.adminOnly && !isRoomAdmin(room, data)) return { error: "Only a room admin can do that." };
     const outcome = change(room);
-    if (outcome === undefined) room.lastActivityAt = Date.now();
+    if (outcome !== SKIP && !(outcome && "error" in outcome)) room.lastActivityAt = Date.now();
     return outcome;
   });
   if (result.status === "busy") socket.emit("room:error", { message: BUSY_MESSAGE });
@@ -274,18 +269,26 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
           votes,
           average,
         };
-        room.pokerHistory = [entry, ...room.pokerHistory].slice(0, MAX_POKER_HISTORY);
+        room.pokerHistorySummary = {
+          count: room.pokerHistorySummary.count + 1,
+          latestRevealedAt: entry.revealedAt,
+        };
+        // Stored as its own item next to the room, atomically with this save.
+        return { addPokerHistory: entry };
       })
     );
 
-    // History isn't pushed with room:state (see PublicRoomState) — anyone in
-    // the room fetches it when they open the history dialog. Not admin-only:
-    // anonymous rounds were already stored without names.
+    // History isn't pushed with room:state — anyone in the room fetches it
+    // when they open the history dialog. Not admin-only: anonymous rounds were
+    // already stored without names.
     socket.on("poker:getHistory", async (ack?: (res: PokerHistoryResponse) => void) => {
       if (typeof ack !== "function") return;
       const { code } = socket.data as SocketData;
-      const room = code ? await roomStore.getRoom(code) : undefined;
-      ack(room ? { ok: true, entries: room.pokerHistory } : { ok: false, error: "You're not in a room." });
+      if (!code) {
+        ack({ ok: false, error: "You're not in a room." });
+        return;
+      }
+      ack({ ok: true, entries: await roomStore.listPokerHistory(code, MAX_POKER_HISTORY) });
     });
 
     socket.on("poker:reset", () =>
@@ -328,14 +331,29 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
       })
     );
 
-    socket.on("feedback:submit", (payload: { text?: string }) => {
+    // Like votes, not changeRoom: submissions come in bursts, so each is stored
+    // as its own item plus a count bump on the room (addFeedback), with no read
+    // and no conflicts between submitters.
+    socket.on("feedback:submit", async (payload: { text?: string }) => {
+      const { code } = socket.data as SocketData;
       const text = (payload?.text || "").trim().slice(0, MAX_FEEDBACK_LENGTH);
-      if (!text) return;
-      return changeRoom(socket, {}, (room) => {
-        const item: FeedbackItem = { id: nanoid(10), text, createdAt: Date.now() };
-        room.feedback.items.unshift(item);
-        room.feedback.submissionCount += 1;
-      });
+      if (!code || !text) return;
+      const item: FeedbackItem = { id: nanoid(10), text, createdAt: Date.now() };
+      const room = await roomStore.addFeedback(code, item);
+      if (room) broadcastRoomState(room);
+    });
+
+    // Feedback text is admin-only and never pushed: admins viewing the Feedback
+    // Box fetch it, and refetch when feedback.submissionCount changes.
+    socket.on("feedback:getItems", async (ack?: (res: FeedbackItemsResponse) => void) => {
+      if (typeof ack !== "function") return;
+      const data = socket.data as SocketData;
+      const room = data.code ? await roomStore.getRoom(data.code) : undefined;
+      if (!room || !isRoomAdmin(room, data)) {
+        ack({ ok: false, error: "Only a room admin can see feedback." });
+        return;
+      }
+      ack({ ok: true, items: await roomStore.listFeedback(room.code) });
     });
 
     socket.on("plinko:setOptions", (payload: { options?: string[] }) => {

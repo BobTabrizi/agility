@@ -26,6 +26,12 @@ participants stay in sync in real time over a Socket.IO connection.
   cleaned up — an app-level sweep for the in-memory store, DynamoDB's native TTL for the Dynamo one.
   Writes are versioned, so simultaneous changes to a room (people voting at the same moment) can't
   overwrite each other.
+- **DynamoDB table setup** (for `DYNAMODB_TABLE_NAME`, and a second identical table for
+  `DYNAMODB_TEST_TABLE` if you run `npm run test:dynamo`): partition key `pk` (String), sort key
+  `sk` (String), on-demand capacity, and TTL turned on for the attribute `expiresAt`. Each room is
+  a `ROOM` item plus one small item per poker round and per feedback submission, so no item grows
+  without bound. The access key needs `GetItem`, `PutItem`, `UpdateItem`, `DeleteItem`, `Query`,
+  `BatchWriteItem` and `ConditionCheckItem` on both tables.
 
 ## Running locally
 
@@ -80,8 +86,9 @@ touches AWS: the DynamoDB tests run against a real (pay-per-request) table, so t
     don't) and resets the round when flipped. Past rounds are kept as poker history (topic, votes,
     average), reachable from the "⋮" menu next to the activity tabs and loaded only when you open
     it — anonymous rounds stay anonymous in history even if the toggle is switched off later.
-  - **Feedback Box** — participants submit free-text feedback with no name attached; only
-    admins can see submitted messages (others just see a running submission count).
+  - **Feedback Box** — participants submit free-text feedback with no name attached (no limit on
+    how many); only admins can see submitted messages (others just see a running submission
+    count), and the list loads when an admin opens the Feedback Box.
   - **Plinko** — an admin enters a list of options, "Drop the ball" picks one at random server-side
     and every client plays the same reveal animation.
   - **Team Randomizer** — an admin enters a list of names and a desired team count; "Generate teams"
@@ -129,6 +136,10 @@ changes:
 - Room data is in-memory only by default — restarting the server clears all rooms unless
   `ROOM_STORE=dynamodb` is set (see above), in which case a `DynamoRoomStore` persists rooms in a
   real DynamoDB table instead.
+- With DynamoDB, poker history rounds and feedback submissions expire 60 days after they were
+  created, even if the room itself is still in use — a long-running room gradually drops its
+  oldest entries. (The in-memory store keeps them for the life of the room.) Poker history shows
+  the newest 50 rounds.
 
 ### Future considerations
 
@@ -139,17 +150,6 @@ changes:
   ~100ms after a Reset under heavy load hit it — but if it shows up for real users, the client
   could hold card clicks for a moment after a reset, or the server could briefly retry a vote
   refused only because the round was still revealed.
-- **Everything lives in one DynamoDB item per room — two consequences.** (Planned fix: a table
-  with a sort key, so each poker round and each feedback submission is its own small item next to
-  the room item.)
-  - *Vote cost grows with the room.* DynamoDB bills a write by the size of the whole item, even
-    when an update changes a single field — so each vote costs roughly one write unit per KB of the
-    room. A fresh 40-person room is ~4 KB; with poker history at its 50-round cap it's ~70 KB, i.e.
-    ~70 units per vote. Irrelevant at today's usage, worth fixing before heavy use.
-  - *Feedback Box has no cap, and DynamoDB items max out at 400 KB.* Each submission (up to 2,000
-    characters) is appended to the room item, so a few hundred long submissions would push the
-    room past the limit — after which every write to that room fails. Unlikely today, but it would
-    break the room outright rather than just cost more.
 - **An unexpected DynamoDB error fails silently.** Socket handlers don't catch errors like a
   network blip or throttling. It won't crash the server (Next.js's server logs unhandled
   rejections instead of exiting), but the action just doesn't happen and nobody is told — e.g. a
@@ -157,3 +157,9 @@ changes:
   around handlers (log it, send the user a `room:error`, reply to any pending ack) before deploying.
 - **Node version.** The AWS SDK warns that releases after early January 2027 need Node 22+ (this
   project currently runs on Node 20).
+- **Scope the AWS access key down before deploying.** The IAM user behind the key in `.env.local`
+  has a scoped inline policy for the two `agility-rooms-v2` tables (the actions listed under
+  "DynamoDB table setup" above), but also still has broader DynamoDB access from another policy
+  (likely `AmazonDynamoDBFullAccess`) — enough to read or delete any table in the account if the
+  key leaked. To finish: remove the broad policy in IAM → Users → Permissions, then run
+  `npm run test:dynamo` once; if it passes, the inline policy covers everything the app needs.
