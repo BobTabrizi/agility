@@ -269,6 +269,9 @@ export type PokerHistoryResponse = { ok: true; entries: PokerHistoryEntry[] } | 
 /** Reply to `poll:getHistory` — newest first, at most MAX_POLL_HISTORY. */
 export type PollHistoryResponse = { ok: true; entries: PollHistoryEntry[] } | { ok: false; error: string };
 
+/** Reply to `feedback:submit`: only confirms once the submission is stored. */
+export type FeedbackSubmitResponse = { ok: true } | { ok: false; error: string };
+
 /** Reply to `feedback:getItems` (admins only) — newest first. */
 export type FeedbackItemsResponse = { ok: true; items: FeedbackItem[] } | { ok: false; error: string };
 

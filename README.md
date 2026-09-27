@@ -153,6 +153,12 @@ changes:
 
 ## Notes / known limitations (fine for an MVP, worth revisiting before wider use)
 
+- Unexpected server errors (e.g. DynamoDB failing even after the AWS SDK's retries) are logged and
+  reported to the person who acted ("Something went wrong on our end — please try that again"),
+  but not retried automatically. Two edge cases: if the write that marks someone as having left
+  fails, they stay shown as connected until they next join or leave; and if the server can't be
+  reached at all when the page loads, it stays on "Connecting…" while the browser keeps retrying
+  the connection (the 10s join timeout starts once connected).
 - No accounts: whoever holds an admin token in their browser is an admin. Clearing site data or
   switching devices loses admin access to a room (the room itself is unaffected) — though another
   admin can re-appoint you on the new device.
@@ -185,11 +191,6 @@ changes:
   ~100ms after a Reset under heavy load hit it — but if it shows up for real users, the client
   could hold card clicks for a moment after a reset, or the server could briefly retry a vote
   refused only because the round was still revealed.
-- **An unexpected DynamoDB error fails silently.** Socket handlers don't catch errors like a
-  network blip or throttling. It won't crash the server (Next.js's server logs unhandled
-  rejections instead of exiting), but the action just doesn't happen and nobody is told — e.g. a
-  join that hits one never gets its reply, leaving that person on "Connecting…". Worth a catch-all
-  around handlers (log it, send the user a `room:error`, reply to any pending ack) before deploying.
 - **Scope the AWS access key down before deploying.** The IAM user behind the key in `.env.local`
   has a scoped inline policy for the two `agility-rooms-v2` tables (the actions listed under
   "DynamoDB table setup" above), but also still has broader DynamoDB access from another policy

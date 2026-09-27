@@ -209,6 +209,19 @@ port 3000 keeps answering — check which process owns the port before assuming 
   and is fatal (the room page shows "Couldn't join room"); a `room:error` event is one rejected
   action, so it sets `notice` instead and is shown as a dismissible, auto-hiding `ErrorNotice` over
   the still-working room. New server-side validation errors should go out as `room:error`.
+  The join has a 10s timeout (`JOIN_TIMEOUT_MS`), so a reply that never comes shows the error
+  screen (with Try again) instead of leaving "Connecting…" up forever.
+
+- **Unexpected errors in socket handlers**: register handlers with the local `on(event, handler)`
+  in `initSocketServer`, never `socket.on` directly. It wraps each one in `guardHandler`
+  (`src/server/guardHandler.ts`, unit-tested): anything thrown (a DynamoDB failure that outlasted
+  the SDK's retries, a bug) is logged as `[socket] <event> failed (room <code>)` — never with the
+  payload, which can hold feedback text or an admin token — and the sender is told: a pending ack
+  gets `{ ok: false, error }`, otherwise a `room:error`. So handlers can just `await` store calls
+  and let unexpected errors throw; only expected outcomes (validation, "busy") need handling
+  in the handler. Failed actions aren't retried automatically (replaying a reveal or spin could
+  do it twice). `feedback:submit` is acked (`FeedbackSubmitResponse`) so the form only clears
+  and confirms once the submission is stored; on failure the text stays.
 
 - **Round-reset convention**: any admin action that changes the rules of the current round (changing
   the poker deck, toggling anonymous voting) resets `votes`/`revealed` on the server, so votes cast

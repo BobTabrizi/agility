@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { MAX_FEEDBACK_LENGTH, type FeedbackItem, type FeedbackState } from "@/lib/types";
+import {
+  MAX_FEEDBACK_LENGTH,
+  type FeedbackItem,
+  type FeedbackState,
+  type FeedbackSubmitResponse,
+} from "@/lib/types";
 
 function timeAgo(ts: number): string {
   const seconds = Math.max(0, Math.floor((Date.now() - ts) / 1000));
@@ -71,15 +76,32 @@ function AdminFeedbackList({
 }
 
 /** The submission form — for participants, and for admins above the list. */
-function FeedbackForm({ isAdmin, onSubmit }: { isAdmin: boolean; onSubmit: (text: string) => void }) {
+function FeedbackForm({
+  isAdmin,
+  onSubmit,
+}: {
+  isAdmin: boolean;
+  onSubmit: (text: string) => Promise<FeedbackSubmitResponse>;
+}) {
   const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
   const [justSubmitted, setJustSubmitted] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
-  function handleSubmit(e: FormEvent) {
+  // Only clears the text and confirms once the server says it's stored; on a
+  // failure the text stays put so nothing typed is lost.
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const trimmed = text.trim();
-    if (!trimmed) return;
-    onSubmit(trimmed);
+    if (!trimmed || sending) return;
+    setSending(true);
+    setSendError(null);
+    const res = await onSubmit(trimmed);
+    setSending(false);
+    if (!res.ok) {
+      setSendError(res.error);
+      return;
+    }
     setText("");
     setJustSubmitted(true);
     setTimeout(() => setJustSubmitted(false), 3000);
@@ -104,13 +126,17 @@ function FeedbackForm({ isAdmin, onSubmit }: { isAdmin: boolean; onSubmit: (text
           rows={isAdmin ? 3 : 4}
           className="resize-none rounded-lg border border-neutral-300 px-3 py-2 text-base sm:text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
         />
-        <div className="flex items-center justify-between">
-          {justSubmitted ? (
+        <div className="flex items-center justify-between gap-3">
+          {sendError ? (
+            <span role="alert" className="text-sm text-red-600 dark:text-red-400">
+              {sendError}
+            </span>
+          ) : justSubmitted ? (
             <span className="text-sm text-emerald-600 dark:text-emerald-400">Sent anonymously ✓</span>
           ) : (
             <span />
           )}
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-3">
             {/* The box stops accepting input at the limit, so show how close you are. */}
             <span
               className={`text-xs tabular-nums ${
@@ -121,10 +147,10 @@ function FeedbackForm({ isAdmin, onSubmit }: { isAdmin: boolean; onSubmit: (text
             </span>
             <button
               type="submit"
-              disabled={!text.trim()}
+              disabled={!text.trim() || sending}
               className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400 disabled:shadow-none dark:disabled:bg-neutral-800 dark:disabled:text-neutral-500"
             >
-              Send
+              {sending ? "Sending…" : "Send"}
             </button>
           </div>
         </div>
@@ -141,7 +167,7 @@ export function AnonymousBox({
 }: {
   feedback: FeedbackState;
   isAdmin: boolean;
-  onSubmit: (text: string) => void;
+  onSubmit: (text: string) => Promise<FeedbackSubmitResponse>;
   onFetchItems: () => Promise<FeedbackItem[]>;
 }) {
   if (!isAdmin) return <FeedbackForm isAdmin={false} onSubmit={onSubmit} />;

@@ -7,6 +7,7 @@ import type {
   PlinkoSpeed,
   FeedbackItem,
   FeedbackItemsResponse,
+  FeedbackSubmitResponse,
   PokerHistoryEntry,
   PokerHistoryResponse,
   PollHistoryEntry,
@@ -23,7 +24,15 @@ export function useRoomActions() {
       setTopic: (topic: string) => socket.emit("poker:setTopic", { topic }),
       setDeck: (deck: string[]) => socket.emit("poker:setDeck", { deck }),
       setAnonymous: (anonymous: boolean) => socket.emit("poker:setAnonymous", { anonymous }),
-      submitFeedback: (text: string) => socket.emit("feedback:submit", { text }),
+      // Waits for the server to confirm the submission was stored; a timeout
+      // (no reply) comes back as a failure rather than a rejected promise.
+      submitFeedback: async (text: string): Promise<FeedbackSubmitResponse> => {
+        try {
+          return await socket.timeout(10_000).emitWithAck("feedback:submit", { text });
+        } catch {
+          return { ok: false, error: "The server didn't respond, so it may not have been sent. Please try again." };
+        }
+      },
       setWheelOptions: (options: string[]) => socket.emit("wheel:setOptions", { options }),
       spinWheel: () => socket.emit("wheel:spin"),
       removeWheelWinner: (spinId: string) => socket.emit("wheel:removeWinner", { spinId }),

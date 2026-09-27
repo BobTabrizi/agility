@@ -83,12 +83,21 @@ export default function RoomPage() {
             Couldn&apos;t join room {code}
           </p>
           <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">{error}</p>
-          <Link
-            href="/"
-            className="mt-4 inline-block rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
-          >
-            Back home
-          </Link>
+          <div className="mt-4 flex justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
+            >
+              Try again
+            </button>
+            <Link
+              href="/"
+              className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+            >
+              Back home
+            </Link>
+          </div>
         </div>
       </div>
     );

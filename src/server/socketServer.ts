@@ -3,6 +3,7 @@ import { Server as SocketIOServer, type Socket } from "socket.io";
 import { nanoid } from "nanoid";
 import { roomStore, type StoredRoom } from "@/server/roomStore";
 import { createVersionedThrottle } from "@/server/roomThrottle";
+import { guardHandler } from "@/server/guardHandler";
 import { plinkoPath } from "@/lib/plinkoPath";
 import {
   RoomBusyError,
@@ -34,6 +35,7 @@ import {
   type ActivityType,
   type FeedbackItem,
   type FeedbackItemsResponse,
+  type FeedbackSubmitResponse,
   type JoinAck,
   type PokerHistoryEntry,
   type PokerHistoryResponse,
@@ -60,6 +62,8 @@ const MAX_POKER_DECK_SIZE = 30;
 const MAX_TEAM_NAMES = 200;
 
 const BUSY_MESSAGE = "The room is busy right now — please try that again.";
+// For anything unexpected (see guardHandler) — the details go to the server log, not the user.
+const SERVER_ERROR_MESSAGE = "Something went wrong on our end — please try that again.";
 
 // Room broadcasts are grouped per room: see broadcastRoomState.
 const BROADCAST_WINDOW_MS = 50;
@@ -267,7 +271,27 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
   });
 
   io.on("connection", (socket: Socket) => {
-    socket.on(
+    // Every handler below is registered through this rather than socket.on, so
+    // an unexpected error is logged with its event and room, a pending ack gets
+    // a failure reply, and a fire-and-forget action tells its sender via
+    // room:error instead of silently doing nothing.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    function on(event: string, handler: (...args: any[]) => unknown) {
+      socket.on(
+        event,
+        guardHandler(handler, {
+          failedAck: { ok: false, error: SERVER_ERROR_MESSAGE },
+          onError: (err, { hadAck }) => {
+            // Never log the payload: it can hold feedback text or an admin token.
+            const code = (socket.data as SocketData).code ?? "none";
+            console.error(`[socket] ${event} failed (room ${code})`, err);
+            if (!hadAck && socket.connected) socket.emit("room:error", { message: SERVER_ERROR_MESSAGE });
+          },
+        })
+      );
+    }
+
+    on(
       "room:join",
       async (
         payload: { code?: string; name?: string; adminToken?: string; clientId?: string },
@@ -324,7 +348,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
     // so each is a single-field store write (setVote) that doesn't read the
     // room first, conflict with other voters, or queue behind them. It still
     // bumps the room version, so it coexists safely with whole-room writes.
-    socket.on("poker:vote", async (payload: { value?: string | null }) => {
+    on("poker:vote", async (payload: { value?: string | null }) => {
       const { code, participantId } = socket.data as SocketData;
       if (!code || !participantId) return;
       const value = payload?.value;
@@ -335,7 +359,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
       if (room) broadcastRoomState(room);
     });
 
-    socket.on("poker:reveal", () =>
+    on("poker:reveal", () =>
       changeRoom(socket, { adminOnly: true }, (room) => {
         room.poker.revealed = true;
 
@@ -374,7 +398,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
     // History isn't pushed with room:state — anyone in the room fetches it
     // when they open the history dialog. Not admin-only: anonymous rounds were
     // already stored without names.
-    socket.on("poker:getHistory", async (ack?: (res: PokerHistoryResponse) => void) => {
+    on("poker:getHistory", async (ack?: (res: PokerHistoryResponse) => void) => {
       if (typeof ack !== "function") return;
       const { code } = socket.data as SocketData;
       if (!code) {
@@ -384,21 +408,21 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
       ack({ ok: true, entries: await roomStore.listPokerHistory(code, MAX_POKER_HISTORY) });
     });
 
-    socket.on("poker:reset", () =>
+    on("poker:reset", () =>
       changeRoom(socket, { adminOnly: true }, (room) => {
         room.poker.votes = {};
         room.poker.revealed = false;
       })
     );
 
-    socket.on("poker:setTopic", (payload: { topic?: string }) => {
+    on("poker:setTopic", (payload: { topic?: string }) => {
       const topic = (payload?.topic || "").slice(0, MAX_POKER_TOPIC_LENGTH);
       return changeRoom(socket, { adminOnly: true }, (room) => {
         room.poker.topic = topic;
       });
     });
 
-    socket.on("poker:setDeck", (payload: { deck?: string[] }) => {
+    on("poker:setDeck", (payload: { deck?: string[] }) => {
       const deck = [
         ...new Set(
           (payload?.deck || [])
@@ -414,7 +438,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
       });
     });
 
-    socket.on("poker:setAnonymous", (payload: { anonymous?: boolean }) =>
+    on("poker:setAnonymous", (payload: { anonymous?: boolean }) =>
       changeRoom(socket, { adminOnly: true }, (room) => {
         room.poker.anonymous = Boolean(payload?.anonymous);
         // Reset the round: otherwise toggling anonymous off after a reveal
@@ -427,18 +451,23 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
     // Like votes, not changeRoom: submissions come in bursts, so each is stored
     // as its own item plus a count bump on the room (addFeedback), with no read
     // and no conflicts between submitters.
-    socket.on("feedback:submit", async (payload: { text?: string }) => {
+    // Acked, so the form only says "sent" (and clears the text) once the
+    // submission is actually stored — on failure the person keeps what they wrote.
+    on("feedback:submit", async (payload: { text?: string }, ack?: (res: FeedbackSubmitResponse) => void) => {
       const { code } = socket.data as SocketData;
       const text = (payload?.text || "").trim().slice(0, MAX_FEEDBACK_LENGTH);
-      if (!code || !text) return;
+      if (!code) return ack?.({ ok: false, error: "You're not in a room." });
+      if (!text) return ack?.({ ok: false, error: "Write something first." });
       const item: FeedbackItem = { id: nanoid(10), text, createdAt: Date.now() };
       const room = await roomStore.addFeedback(code, item);
-      if (room) broadcastRoomState(room);
+      if (!room) return ack?.({ ok: false, error: "That room doesn't exist or has expired." });
+      ack?.({ ok: true });
+      broadcastRoomState(room);
     });
 
     // Feedback text is admin-only and never pushed: admins viewing the Feedback
     // Box fetch it, and refetch when feedback.submissionCount changes.
-    socket.on("feedback:getItems", async (ack?: (res: FeedbackItemsResponse) => void) => {
+    on("feedback:getItems", async (ack?: (res: FeedbackItemsResponse) => void) => {
       if (typeof ack !== "function") return;
       const data = socket.data as SocketData;
       const room = data.code ? await roomStore.getRoom(data.code) : undefined;
@@ -449,7 +478,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
       ack({ ok: true, items: await roomStore.listFeedback(room.code) });
     });
 
-    socket.on("wheel:setOptions", (payload: { options?: string[] }) => {
+    on("wheel:setOptions", (payload: { options?: string[] }) => {
       const options = (payload?.options || [])
         .map((o) => (typeof o === "string" ? o.trim().slice(0, MAX_WHEEL_OPTION_LENGTH) : ""))
         .filter(Boolean)
@@ -462,7 +491,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
     // The whole spin is decided here, not just the winner — how many turns and
     // where in the winning slice it stops — so every client plays the identical
     // animation and lands on the same slice.
-    socket.on("wheel:spin", () =>
+    on("wheel:spin", () =>
       changeRoom(socket, { adminOnly: true }, (room) => {
         const count = room.wheel.options.length;
         if (count < 2) return { error: "Add at least two options before spinning." };
@@ -478,7 +507,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
     // "Remove the winner, spin again" — e.g. picking standup speakers one by one.
     // The client says which spin's winner it means, so if someone spun again in
     // the meantime this refuses rather than removing a different option.
-    socket.on("wheel:removeWinner", (payload: { spinId?: string }) =>
+    on("wheel:removeWinner", (payload: { spinId?: string }) =>
       changeRoom(socket, { adminOnly: true }, (room) => {
         const { spin, options } = room.wheel;
         if (!spin || spin.id !== payload?.spinId) {
@@ -488,7 +517,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
       })
     );
 
-    socket.on("plinko:setOptions", (payload: { options?: string[] }) => {
+    on("plinko:setOptions", (payload: { options?: string[] }) => {
       const options = (payload?.options || [])
         .map((o) => (typeof o === "string" ? o.trim().slice(0, MAX_PLINKO_OPTION_LENGTH) : ""))
         .filter(Boolean)
@@ -498,7 +527,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
       });
     });
 
-    socket.on("plinko:setSpeed", (payload: { speed?: PlinkoSpeed }) => {
+    on("plinko:setSpeed", (payload: { speed?: PlinkoSpeed }) => {
       const speed = payload?.speed;
       if (!speed || !(speed in PLINKO_SPEEDS)) return;
       return changeRoom(socket, { adminOnly: true }, (room) => {
@@ -509,7 +538,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
 
     // "Movie physics": the winner is chosen uniformly first — fair to every
     // option, unlike a real board — then a believable bounce path into it.
-    socket.on("plinko:drop", () =>
+    on("plinko:drop", () =>
       changeRoom(socket, { adminOnly: true }, (room) => {
         const count = room.plinko.options.length;
         if (count < 2) return { error: "Add at least two options before dropping the ball." };
@@ -524,7 +553,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
     );
 
     // Same guard as wheel:removeWinner: only the drop the client was shown.
-    socket.on("plinko:removeWinner", (payload: { dropId?: string }) =>
+    on("plinko:removeWinner", (payload: { dropId?: string }) =>
       changeRoom(socket, { adminOnly: true }, (room) => {
         const { drop, options } = room.plinko;
         if (!drop || drop.id !== payload?.dropId) {
@@ -541,7 +570,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
     // One atomic action rather than separate setNames/setCount/randomize events:
     // the UI only ever calls this as a single "Generate teams" click, and folding
     // it into one handler avoids any ordering risk between chained emits.
-    socket.on("teams:generate", (payload: { names?: string[]; count?: number }) => {
+    on("teams:generate", (payload: { names?: string[]; count?: number }) => {
       const names = (payload?.names || [])
         .map((n) => n.trim().slice(0, MAX_TEAM_NAME_LENGTH))
         .filter(Boolean)
@@ -564,7 +593,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
 
     // Starts a poll, replacing any current one (and its votes). The new id is
     // what makes a vote cast for the old poll get rejected.
-    socket.on(
+    on(
       "poll:create",
       (payload: { question?: string; options?: string[]; multiple?: boolean; anonymous?: boolean }) => {
         const question = (payload?.question || "").trim().slice(0, MAX_POLL_QUESTION_LENGTH);
@@ -606,7 +635,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
     // no queue, no conflicts. An empty list clears your vote. Votes are kept
     // if the voter disconnects (unlike poker's): a poll is a record of what
     // people answered, not a live round.
-    socket.on("poll:vote", async (payload: { pollId?: string; optionIds?: string[] }) => {
+    on("poll:vote", async (payload: { pollId?: string; optionIds?: string[] }) => {
       const { code, participantId } = socket.data as SocketData;
       if (!code || !participantId || typeof payload?.pollId !== "string") return;
       const optionIds = [
@@ -621,7 +650,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
 
     // Closing records the poll's results in poll history (atomically with the
     // close); reopening lets voting resume, and closing again updates that entry.
-    socket.on("poll:setClosed", (payload: { closed?: boolean }) =>
+    on("poll:setClosed", (payload: { closed?: boolean }) =>
       changeRoom(socket, { adminOnly: true }, (room) => {
         const closed = Boolean(payload?.closed);
         if (!room.poll.id || room.poll.closed === closed) return SKIP;
@@ -634,7 +663,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
 
     // Like poker history: anyone in the room fetches it when they open the
     // poll history dialog. Anonymous polls were already stored without names.
-    socket.on("poll:getHistory", async (ack?: (res: PollHistoryResponse) => void) => {
+    on("poll:getHistory", async (ack?: (res: PollHistoryResponse) => void) => {
       if (typeof ack !== "function") return;
       const { code } = socket.data as SocketData;
       if (!code) {
@@ -644,7 +673,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
       ack({ ok: true, entries: await roomStore.listPollHistory(code, MAX_POLL_HISTORY) });
     });
 
-    socket.on("activity:set", (payload: { activity?: ActivityType }) => {
+    on("activity:set", (payload: { activity?: ActivityType }) => {
       const activity = payload?.activity;
       if (!activity || !ACTIVITIES.some((a) => a.id === activity)) return;
       return changeRoom(socket, { adminOnly: true }, (room) => {
@@ -656,7 +685,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
     // is handed to their live socket(s) via admin:granted. There's no safe way
     // to deliver it later — the only thing identifying an Away participant on
     // rejoin is their participant id, which every client can see.
-    socket.on("admin:appoint", (payload: { participantId?: string }) => {
+    on("admin:appoint", (payload: { participantId?: string }) => {
       let granted: { participantId: string; token: string } | undefined;
       return changeRoom(
         socket,
@@ -689,7 +718,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
     // room always keeps at least one admin. No need to touch the target's
     // sockets: their stored token simply stops matching in isRoomAdmin, and
     // the broadcast sends them viewerIsAdmin: false.
-    socket.on("admin:revoke", (payload: { participantId?: string }) =>
+    on("admin:revoke", (payload: { participantId?: string }) =>
       changeRoom(socket, { adminOnly: true }, (room) => {
         const participantId = payload?.participantId;
         if (!participantId || !(participantId in room.appointedAdminTokens)) {
@@ -706,7 +735,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
     // invite link and come back as a fresh participant — without their vote
     // or any appointed admin rights, which are cleared here. Also works on an
     // Away participant, which is how stale roster entries get pruned.
-    socket.on("participant:kick", (payload: { participantId?: string }) => {
+    on("participant:kick", (payload: { participantId?: string }) => {
       const selfId = (socket.data as SocketData).participantId;
       let kickedId: string | undefined;
       return changeRoom(
@@ -748,7 +777,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
 
     // Adopts a newly granted admin token on an already-joined socket, so being
     // appointed doesn't require a leave/rejoin (which would clear a poker vote).
-    socket.on("room:auth", async (payload: { token?: string }) => {
+    on("room:auth", async (payload: { token?: string }) => {
       const data = socket.data as SocketData;
       if (!data.code || !payload?.token) return;
       const room = await roomStore.getRoom(data.code);
@@ -780,13 +809,13 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
       if (result.status === "saved") broadcastRoomState(result.room);
     }
 
-    socket.on("room:leave", async () => {
+    on("room:leave", async () => {
       const { code } = socket.data as SocketData;
       await markDisconnected();
       if (code) await socket.leave(roomChannel(code));
     });
 
-    socket.on("disconnect", markDisconnected);
+    on("disconnect", markDisconnected);
   });
 
   return io;

@@ -5,6 +5,10 @@ import { getSocket } from "@/lib/socketClient";
 import { getStoredAdminToken, setStoredAdminToken } from "@/lib/storage";
 import type { JoinAck, PublicRoomState } from "@/lib/types";
 
+// How long to wait for the server to answer a join before showing an error
+// (a reply it never sends would otherwise leave "Connecting…" up forever).
+const JOIN_TIMEOUT_MS = 10_000;
+
 interface UseRoomConnectionArgs {
   code: string;
   name: string;
@@ -45,14 +49,25 @@ export function useRoomConnection({
     if (!code || !name || !clientId) return;
     const socket = getSocket();
     let cancelled = false;
+    // Only the latest join's reply counts: a reconnect starts a new join, and
+    // the old one's timeout mustn't overwrite the new one's success.
+    let latestJoin = 0;
 
     function join() {
+      const thisJoin = ++latestJoin;
       setStatus("connecting");
       // Read fresh on every (re)join rather than captured once, so a token
       // granted mid-session (admin:granted) is still presented after a reconnect.
       const adminToken = getStoredAdminToken(code);
-      socket.emit("room:join", { code, name, adminToken, clientId }, (ack: JoinAck) => {
-        if (cancelled) return;
+      socket.timeout(JOIN_TIMEOUT_MS).emit("room:join", { code, name, adminToken, clientId }, (err: Error | null, ack: JoinAck) => {
+        if (cancelled || thisJoin !== latestJoin) return;
+        if (err) {
+          // No reply in time. If the connection comes back, the "connect"
+          // handler joins again, so this can still recover on its own.
+          setError("The server didn't respond. Check your connection and try again.");
+          setStatus("error");
+          return;
+        }
         if (!ack.ok) {
           setError(ack.error || "Unable to join room");
           setStatus("error");
