@@ -44,7 +44,7 @@ export function JoinNameForm({
           onFocus={(e) => e.target.select()}
           placeholder="Your name"
           maxLength={40}
-          className="rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
+          className="rounded-lg border border-neutral-300 px-3 py-2 text-base sm:text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
         />
         {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
         <button

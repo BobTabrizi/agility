@@ -139,7 +139,7 @@ function PollEditor({
           onChange={(e) => setQuestion(e.target.value)}
           placeholder="e.g. Where should we go for the team lunch?"
           maxLength={MAX_POLL_QUESTION_LENGTH}
-          className="rounded-lg border border-neutral-300 px-3 py-2 text-sm font-normal outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
+          className="rounded-lg border border-neutral-300 px-3 py-2 text-base sm:text-sm font-normal outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
         />
       </label>
 
@@ -153,7 +153,7 @@ function PollEditor({
               onChange={(e) => setOptions(options.map((o, j) => (j === i ? e.target.value : o)))}
               placeholder={`Option ${i + 1}`}
               maxLength={MAX_POLL_OPTION_LENGTH}
-              className="min-w-0 flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
+              className="min-w-0 flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-base sm:text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
             />
             {options.length > MIN_POLL_OPTIONS && (
               <button

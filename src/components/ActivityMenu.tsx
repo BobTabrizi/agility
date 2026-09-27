@@ -3,6 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { ACTIVITIES, type ActivityType } from "@/lib/types";
 
+// Matches the menu's w-56, and the gap it keeps from the viewport's edge.
+const MENU_WIDTH = 224;
+const VIEWPORT_MARGIN = 8;
+
 /**
  * The current activity, shown next to the room name, doubling as the
  * activity switcher. Everyone can open it to see what the options are, but
@@ -19,6 +23,9 @@ export function ActivityMenu({
   onChange: (activity: ActivityType) => void;
 }) {
   const [open, setOpen] = useState(false);
+  // Opens left-aligned under the trigger, unless that would run off the right
+  // edge of the screen (a phone with a long room name) — then right-aligned.
+  const [alignRight, setAlignRight] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const activeLabel = ACTIVITIES.find((a) => a.id === active)?.label;
 
@@ -42,7 +49,11 @@ export function ActivityMenu({
     <div ref={menuRef} className="relative shrink-0">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          setAlignRight(rect.left + MENU_WIDTH > window.innerWidth - VIEWPORT_MARGIN);
+          setOpen((v) => !v);
+        }}
         aria-haspopup="menu"
         aria-expanded={open}
         className="-mx-1.5 flex items-center gap-1 rounded-md px-1.5 py-0.5 text-sm font-medium text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
@@ -62,7 +73,7 @@ export function ActivityMenu({
         <div
           role="menu"
           aria-label="Activities"
-          className="absolute left-0 top-full z-20 mt-1.5 w-56 overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-lg dark:border-neutral-800 dark:bg-neutral-900"
+          className={`absolute ${alignRight ? "right-0" : "left-0"} top-full z-20 mt-1.5 w-56 overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-lg dark:border-neutral-800 dark:bg-neutral-900`}
         >
           {ACTIVITIES.map((activity) => {
             const isActive = activity.id === active;

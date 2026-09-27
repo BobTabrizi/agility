@@ -60,8 +60,8 @@ export function PokerHistoryModal({
             key={entry.id}
             className="rounded-xl border border-neutral-200 px-3 py-2.5 dark:border-neutral-800"
           >
-            <div className="flex items-center justify-between gap-2">
-              <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-50">
+            <div className="flex items-start justify-between gap-2">
+              <p className="min-w-0 break-words text-sm font-medium text-neutral-900 dark:text-neutral-50">
                 {entry.topic || "Untitled round"}
               </p>
               <span className="shrink-0 text-xs text-neutral-400">

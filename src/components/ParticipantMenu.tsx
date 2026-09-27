@@ -7,6 +7,10 @@ const itemBaseClass = "block w-full px-3 py-2 text-left text-sm hover:bg-neutral
 const itemClass = `${itemBaseClass} text-neutral-700 dark:text-neutral-200`;
 const dangerItemClass = `${itemBaseClass} text-red-600 dark:text-red-400`;
 
+// Matches the menu's w-48, and the gap it keeps from the viewport's edges.
+const MENU_WIDTH = 192;
+const VIEWPORT_MARGIN = 8;
+
 /**
  * Admin-only "⋮" menu on a roster row. Renders nothing if there's no action
  * that applies to this participant (e.g. the room creator, as seen by
@@ -31,8 +35,10 @@ export function ParticipantMenu({
   // Fixed-position coordinates, set while open. The roster list scrolls
   // (overflow-y-auto), which would clip an absolutely positioned dropdown, so
   // the menu is placed against the viewport instead — and closes on any
-  // scroll rather than drifting away from its row.
-  const [position, setPosition] = useState<{ top: number; right: number } | null>(null);
+  // scroll rather than drifting away from its row. It lines up with the
+  // button's right edge, shifted as needed to stay on screen (on a phone the
+  // roster popover spans the screen, so right-aligned would run off the left).
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -75,7 +81,9 @@ export function ParticipantMenu({
             return;
           }
           const rect = e.currentTarget.getBoundingClientRect();
-          setPosition({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+          const maxLeft = window.innerWidth - MENU_WIDTH - VIEWPORT_MARGIN;
+          const left = Math.max(VIEWPORT_MARGIN, Math.min(rect.right - MENU_WIDTH, maxLeft));
+          setPosition({ top: rect.bottom + 4, left });
         }}
         aria-label={`Actions for ${participant.name}`}
         aria-haspopup="menu"
@@ -90,7 +98,7 @@ export function ParticipantMenu({
       {position && (
         <div
           role="menu"
-          style={{ top: position.top, right: position.right }}
+          style={{ top: position.top, left: position.left }}
           className="fixed z-30 w-48 overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-lg dark:border-neutral-800 dark:bg-neutral-900"
         >
           {canAppoint && (

@@ -190,3 +190,7 @@ changes:
   (likely `AmazonDynamoDBFullAccess`) — enough to read or delete any table in the account if the
   key leaked. To finish: remove the broad policy in IAM → Users → Permissions, then run
   `npm run test:dynamo` once; if it passes, the inline policy covers everything the app needs.
+- **Mobile polish left over.** The layout works down to 320px wide, but on a phone the room name
+  is cut short next to the activity name, the poker topic box's hint text is clipped, and the
+  roster's "⋮" buttons are 24px (below the ~44px usually recommended for touch). Left for when the
+  room layout settles.

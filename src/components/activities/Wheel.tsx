@@ -270,7 +270,7 @@ export function Wheel({
               onChange={(e) => setOptionsDraft(e.target.value)}
               rows={5}
               placeholder={"Alice\nBob\nCarla"}
-              className="resize-y rounded-lg border border-neutral-300 px-3 py-2 text-sm font-normal outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
+              className="resize-y rounded-lg border border-neutral-300 px-3 py-2 text-base sm:text-sm font-normal outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
             />
           </label>
           <p className="text-xs text-neutral-400">

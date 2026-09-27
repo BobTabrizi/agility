@@ -52,8 +52,8 @@ export default function HomePage() {
           Agility
         </h1>
         <p className="mt-3 text-center text-neutral-600 dark:text-neutral-400">
-          Spin up a room for your team: estimate stories with planning poker, collect anonymous
-          feedback, or let plinko pick for you.
+          Spin up a room for your team: estimate stories with planning poker, run a quick poll,
+          collect anonymous feedback, split into teams, or let the wheel or plinko pick for you.
         </p>
 
         <div className="mt-12 grid w-full gap-6 sm:grid-cols-2">
@@ -76,7 +76,7 @@ export default function HomePage() {
                 onChange={(e) => setTeamName(e.target.value)}
                 placeholder="e.g. Platform Team"
                 maxLength={MAX_ROOM_NAME_LENGTH}
-                className="rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
+                className="rounded-lg border border-neutral-300 px-3 py-2 text-base sm:text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
               />
             </label>
             <label className="flex flex-col gap-1 text-sm font-medium text-neutral-700 dark:text-neutral-300">
@@ -87,7 +87,7 @@ export default function HomePage() {
                 onFocus={(e) => e.target.select()}
                 placeholder="e.g. Jamie"
                 maxLength={40}
-                className="rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
+                className="rounded-lg border border-neutral-300 px-3 py-2 text-base sm:text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
               />
             </label>
             {createError && <p className="text-sm text-red-600 dark:text-red-400">{createError}</p>}
@@ -119,7 +119,7 @@ export default function HomePage() {
                 onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
                 placeholder="e.g. AB12CD"
                 maxLength={6}
-                className="rounded-lg border border-neutral-300 px-3 py-2 text-sm uppercase tracking-widest outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
+                className="rounded-lg border border-neutral-300 px-3 py-2 text-base sm:text-sm uppercase tracking-widest outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
               />
             </label>
             <div className="flex-1" />

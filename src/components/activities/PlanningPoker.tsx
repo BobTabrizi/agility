@@ -81,7 +81,7 @@ export function PlanningPoker({
               onChange={(e) => setTopicDraft(e.target.value)}
               placeholder="What are we estimating? (shown to everyone in the room)"
               maxLength={200}
-              className="min-w-0 flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
+              className="min-w-0 flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-base sm:text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
             />
             {!topicIsUnsaved && justSavedTopic && (
               <span className="text-sm text-emerald-600 dark:text-emerald-400">Saved ✓</span>
@@ -95,7 +95,7 @@ export function PlanningPoker({
             </button>
           </form>
         ) : (
-          <p className="truncate text-lg text-neutral-900 dark:text-neutral-50" title={poker.topic || undefined}>
+          <p className="break-words text-lg text-neutral-900 dark:text-neutral-50">
             <span className="font-medium text-neutral-500 dark:text-neutral-400">Topic: </span>
             <span className={poker.topic ? "font-medium" : "text-neutral-400 dark:text-neutral-500"}>
               {poker.topic || "None"}

@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Agility",
-  description: "Planning poker, anonymous feedback, and plinko for your team.",
+  description: "Planning poker, polls, anonymous feedback, team randomizer, wheel and plinko for your team.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

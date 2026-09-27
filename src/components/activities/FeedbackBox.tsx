@@ -120,7 +120,7 @@ export function FeedbackBox({
           placeholder="Share something the admin should know…"
           maxLength={MAX_FEEDBACK_LENGTH}
           rows={4}
-          className="resize-none rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
+          className="resize-none rounded-lg border border-neutral-300 px-3 py-2 text-base sm:text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
         />
         <div className="flex items-center justify-between">
           {justSubmitted ? (

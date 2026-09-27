@@ -68,7 +68,7 @@ export function PokerDeckModal({
             value={deckDraft}
             onChange={(e) => handleDeckDraftChange(e.target.value)}
             placeholder="0, 1, 2, 3, 5, 8, 13, ?, Continue retrospective, Leave retrospective"
-            className="flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
+            className="flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-base sm:text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
           />
           <span
             className={`shrink-0 text-xs tabular-nums ${

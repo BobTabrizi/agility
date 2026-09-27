@@ -23,6 +23,13 @@ const PEG_R = 0.06;
 const BALL_R = 0.15;
 const TOP_Y = 0.7;
 const BIN_H = 1.6;
+const LABEL_FONT = 0.3;
+// The board's width with 6 or fewer slots. Wider boards (7-12 slots) get
+// scaled down more to fit the card, shrinking their bin labels with them (to
+// ~7px for 12 slots on a phone), so labels and bins are enlarged part of the
+// way back — by the square root of the extra width, which keeps the board from
+// getting much taller.
+const BASE_WIDTH = 2 * MARGIN + 6;
 
 function geometry(count: number) {
   const rows = plinkoRowCount(count);
@@ -30,13 +37,17 @@ function geometry(count: number) {
   const width = 2 * MARGIN + count * laneW;
   const rowH = Math.min(0.31 * Math.min(laneW, 1.5), (0.55 * width) / rows);
   const binTop = TOP_Y + rows * rowH;
+  const labelScale = Math.sqrt(width / BASE_WIDTH);
+  const binH = BIN_H * labelScale;
   return {
     rows,
     laneW,
     rowH,
     binTop,
+    binH,
+    labelFont: Math.min(LABEL_FONT * labelScale, laneW * 0.45),
     width,
-    height: binTop + BIN_H + 0.2,
+    height: binTop + binH + 0.2,
     x: (lane: number) => MARGIN + (lane + 0.5) * laneW,
     pegY: (row: number) => TOP_Y + row * rowH,
   };
@@ -75,7 +86,7 @@ function timeline(count: number, path: number[], speed: PlinkoSpeed): { segments
   const pace = PLINKO_SPEEDS[speed];
   const lanes = plinkoPositions(count, path);
   const rest = (row: number, lane: number): [number, number] => [g.x(lane), g.pegY(row) - PEG_R - BALL_R];
-  const inBin: [number, number] = [g.x(lanes[lanes.length - 1]), g.binTop + BIN_H - BALL_R - 0.05];
+  const inBin: [number, number] = [g.x(lanes[lanes.length - 1]), g.binTop + g.binH - BALL_R - 0.05];
   const segments: Segment[] = [
     // Dropped in above the middle, falling onto the first peg.
     { duration: 460 * pace, from: [g.x(lanes[0]), 0.1], to: rest(0, lanes[0]), arc: 0, gravity: true },
@@ -229,7 +240,7 @@ export function Plinko({
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col items-center gap-5 rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
+      <div className="flex flex-col items-center gap-5 rounded-2xl border border-neutral-200 bg-white p-3 sm:p-5 dark:border-neutral-800 dark:bg-neutral-900">
         <div className="relative w-full max-w-[420px]">
           {board ? (
             <svg
@@ -247,8 +258,8 @@ export function Plinko({
               </defs>
 
               {/* Side walls */}
-              <line x1={MARGIN / 2} y1={TOP_Y - 0.4} x2={MARGIN / 2} y2={board.binTop + BIN_H} className="stroke-neutral-300 dark:stroke-neutral-700" strokeWidth={0.06} strokeLinecap="round" />
-              <line x1={board.width - MARGIN / 2} y1={TOP_Y - 0.4} x2={board.width - MARGIN / 2} y2={board.binTop + BIN_H} className="stroke-neutral-300 dark:stroke-neutral-700" strokeWidth={0.06} strokeLinecap="round" />
+              <line x1={MARGIN / 2} y1={TOP_Y - 0.4} x2={MARGIN / 2} y2={board.binTop + board.binH} className="stroke-neutral-300 dark:stroke-neutral-700" strokeWidth={0.06} strokeLinecap="round" />
+              <line x1={board.width - MARGIN / 2} y1={TOP_Y - 0.4} x2={board.width - MARGIN / 2} y2={board.binTop + board.binH} className="stroke-neutral-300 dark:stroke-neutral-700" strokeWidth={0.06} strokeLinecap="round" />
 
               {/* Pegs — the one being struck flashes */}
               {Array.from({ length: board.rows }, (_, row) =>
@@ -273,14 +284,14 @@ export function Plinko({
                 const isWinner = winner !== null && i === drop?.winnerIndex;
                 const x0 = MARGIN + i * board.laneW;
                 const cx = x0 + board.laneW / 2;
-                const cy = board.binTop + BIN_H / 2;
+                const cy = board.binTop + board.binH / 2;
                 return (
                   <g key={i} style={{ opacity: winner !== null && !isWinner ? 0.35 : 1, transition: "opacity 400ms" }}>
                     <rect
                       x={x0 + 0.04}
                       y={board.binTop}
                       width={board.laneW - 0.08}
-                      height={BIN_H}
+                      height={board.binH}
                       rx={0.12}
                       fill={color.fill}
                       opacity={isWinner ? 1 : 0.55}
@@ -289,7 +300,7 @@ export function Plinko({
                       transform={`translate(${cx} ${cy}) rotate(-90)`}
                       textAnchor="middle"
                       dominantBaseline="middle"
-                      fontSize={Math.min(0.3, board.laneW * 0.32)}
+                      fontSize={board.labelFont}
                       fontWeight={600}
                       fill={color.ink}
                     >
@@ -402,7 +413,7 @@ export function Plinko({
               onChange={(e) => setOptionsDraft(e.target.value)}
               rows={5}
               placeholder={"Alice\nBob\nCarla"}
-              className="resize-y rounded-lg border border-neutral-300 px-3 py-2 text-sm font-normal outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
+              className="resize-y rounded-lg border border-neutral-300 px-3 py-2 text-base sm:text-sm font-normal outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
             />
           </label>
           <p className={`text-xs ${draftTooLong ? "text-amber-600 dark:text-amber-400" : "text-neutral-400"}`}>
