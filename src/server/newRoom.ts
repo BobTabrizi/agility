@@ -1,9 +1,25 @@
 import { customAlphabet } from "nanoid";
-import { DEFAULT_POKER_DECK } from "@/lib/types";
+import { DEFAULT_POKER_DECK, type PollState } from "@/lib/types";
 import type { StoredRoom } from "@/server/roomStore";
 
 export const generateRoomCode = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 6);
 const generateAdminToken = customAlphabet("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", 24);
+
+/** No poll yet — what a room has until an admin starts one. */
+export function emptyPoll(): PollState {
+  return {
+    id: null,
+    createdAt: null,
+    recordedAt: null,
+    question: "",
+    options: [],
+    optionIds: [],
+    multiple: false,
+    anonymous: true,
+    closed: false,
+    votes: {},
+  };
+}
 
 /** A brand-new room's starting state — shared by every RoomStore so their defaults can't drift. */
 export function newRoom(code: string, name: string): StoredRoom {
@@ -23,5 +39,7 @@ export function newRoom(code: string, name: string): StoredRoom {
     feedback: { submissionCount: 0 },
     plinko: { options: [], isRunning: false, winner: null, seed: null },
     teams: { names: [], teamCount: 2, teams: [] },
+    poll: emptyPoll(),
+    pollHistorySummary: { count: 0, latestRecordedAt: null },
   };
 }

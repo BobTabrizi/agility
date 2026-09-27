@@ -1,4 +1,4 @@
-import type { FeedbackItem, PokerHistoryEntry, RoomState } from "@/lib/types";
+import type { FeedbackItem, PokerHistoryEntry, PollHistoryEntry, RoomState } from "@/lib/types";
 import { DynamoRoomStore } from "@/server/dynamoRoomStore";
 import { generateRoomCode, newRoom } from "@/server/newRoom";
 import { RoomConflictError } from "@/server/roomUpdates";
@@ -17,12 +17,23 @@ export interface StoredRoom extends RoomState {
 }
 
 /**
+ * History to store alongside a room save, atomically with it (see saveRoom):
+ * a revealed poker round, and/or a finished poll's results.
+ */
+export interface HistoryAppend {
+  pokerRound?: PokerHistoryEntry;
+  // Keyed by poll id: recording the same poll again (closed, reopened,
+  // closed again) replaces its entry rather than adding a second one.
+  pollResult?: PollHistoryEntry;
+}
+
+/**
  * Storage abstraction so the socket layer never depends on which backend is
  * active.
  *
  * A room is its main record (StoredRoom — settings, current round, roster,
- * counts) plus two lists stored *alongside* it rather than inside it: poker
- * history rounds and feedback submissions. Keeping those out of the room keeps
+ * counts) plus lists stored *alongside* it rather than inside it: poker
+ * history rounds, poll history, and feedback submissions. Keeping those out of the room keeps
  * every room write small (DynamoDB bills a write by the whole item's size) and
  * keeps the room far from DynamoDB's 400 KB item limit however much feedback
  * comes in.
@@ -39,11 +50,11 @@ export interface RoomStore {
    * Saves `room` only if the stored room is still at `room.version` (i.e.
    * nobody saved since it was read), then bumps `room.version`. Otherwise
    * throws RoomConflictError and writes nothing — including when the room
-   * no longer exists. With `historyEntry`, also adds that round to the
-   * room's poker history, atomically with the room: both are written or
-   * neither is.
+   * no longer exists. With `append`, also stores that history (a poker
+   * round, a poll result) atomically with the room: all of it is written or
+   * none of it is.
    */
-  saveRoom(room: StoredRoom, historyEntry?: PokerHistoryEntry): Promise<void>;
+  saveRoom(room: StoredRoom, append?: HistoryAppend): Promise<void>;
   /**
    * Records one participant's poker vote (or clears it, with `null`) as a
    * single-field write: no read first, so voters never conflict with each
@@ -56,6 +67,21 @@ export interface RoomStore {
    */
   setVote(code: string, participantId: string, value: string | null): Promise<StoredRoom | undefined>;
   /**
+   * setVote's counterpart for polls: records one participant's choices (or
+   * clears them, with an empty list) as a single-field write. Only applies
+   * if the poll is the active activity, is still poll `pollId` (not since
+   * replaced), isn't closed, every id is one of its options, and more than
+   * one id is only accepted for a multiple-choice poll — all checked
+   * atomically with the write. Bumps `version`. Returns the updated room, or
+   * undefined if the room doesn't exist or the conditions don't hold.
+   */
+  setPollVote(
+    code: string,
+    participantId: string,
+    pollId: string,
+    optionIds: string[]
+  ): Promise<StoredRoom | undefined>;
+  /**
    * Stores a feedback submission and bumps the room's submission count (and
    * version), atomically, without reading the room first — like setVote, so
    * a burst of submissions doesn't conflict. Returns the updated room, or
@@ -64,10 +90,12 @@ export interface RoomStore {
   addFeedback(code: string, item: FeedbackItem): Promise<StoredRoom | undefined>;
   /** The room's poker history, newest first, at most `limit` rounds. */
   listPokerHistory(code: string, limit: number): Promise<PokerHistoryEntry[]>;
+  /** The room's finished polls, newest (by when the poll started) first, at most `limit`. */
+  listPollHistory(code: string, limit: number): Promise<PollHistoryEntry[]>;
   /** The room's feedback submissions, newest first. */
   listFeedback(code: string): Promise<FeedbackItem[]>;
   touchRoom(code: string): Promise<void>;
-  /** Removes the room along with its poker history and feedback. */
+  /** Removes the room along with its poker history, poll history and feedback. */
   deleteRoom(code: string): Promise<void>;
 }
 
@@ -76,6 +104,7 @@ const ROOM_TTL_MS = 60 * 24 * 60 * 60 * 1000; // rooms with no activity for 60 d
 interface InMemoryRecord {
   room: StoredRoom;
   history: PokerHistoryEntry[]; // newest first
+  pollHistory: PollHistoryEntry[]; // newest (by createdAt) first
   feedback: FeedbackItem[]; // newest first
 }
 
@@ -102,7 +131,7 @@ export class InMemoryRoomStore implements RoomStore {
       code = generateRoomCode();
     }
     const room = newRoom(code, name);
-    this.records.set(code, { room: structuredClone(room), history: [], feedback: [] });
+    this.records.set(code, { room: structuredClone(room), history: [], pollHistory: [], feedback: [] });
     return room;
   }
 
@@ -115,12 +144,18 @@ export class InMemoryRoomStore implements RoomStore {
     return record && structuredClone(record.room);
   }
 
-  async saveRoom(room: StoredRoom, historyEntry?: PokerHistoryEntry): Promise<void> {
+  async saveRoom(room: StoredRoom, append?: HistoryAppend): Promise<void> {
     const record = this.records.get(room.code);
     if (!record || record.room.version !== room.version) throw new RoomConflictError(room.code);
     room.version += 1;
     record.room = structuredClone(room);
-    if (historyEntry) record.history.unshift(structuredClone(historyEntry));
+    if (append?.pokerRound) record.history.unshift(structuredClone(append.pokerRound));
+    if (append?.pollResult) {
+      const result = append.pollResult;
+      record.pollHistory = [structuredClone(result), ...record.pollHistory.filter((e) => e.id !== result.id)].sort(
+        (a, b) => b.createdAt - a.createdAt
+      );
+    }
   }
 
   async setVote(code: string, participantId: string, value: string | null): Promise<StoredRoom | undefined> {
@@ -131,6 +166,28 @@ export class InMemoryRoomStore implements RoomStore {
     } else {
       if (!room.poker.deck.includes(value)) return undefined;
       room.poker.votes[participantId] = value;
+    }
+    room.version += 1;
+    room.lastActivityAt = Date.now();
+    return structuredClone(room);
+  }
+
+  async setPollVote(
+    code: string,
+    participantId: string,
+    pollId: string,
+    optionIds: string[]
+  ): Promise<StoredRoom | undefined> {
+    const room = this.records.get(code.toUpperCase())?.room;
+    if (!room || room.activeActivity !== "poll") return undefined;
+    const poll = room.poll;
+    if (poll.id !== pollId || poll.closed) return undefined;
+    if (!optionIds.every((id) => poll.optionIds.includes(id))) return undefined;
+    if (optionIds.length > 1 && !poll.multiple) return undefined;
+    if (optionIds.length === 0) {
+      delete poll.votes[participantId];
+    } else {
+      poll.votes[participantId] = [...optionIds];
     }
     room.version += 1;
     room.lastActivityAt = Date.now();
@@ -149,6 +206,10 @@ export class InMemoryRoomStore implements RoomStore {
 
   async listPokerHistory(code: string, limit: number): Promise<PokerHistoryEntry[]> {
     return structuredClone(this.records.get(code.toUpperCase())?.history.slice(0, limit) ?? []);
+  }
+
+  async listPollHistory(code: string, limit: number): Promise<PollHistoryEntry[]> {
+    return structuredClone(this.records.get(code.toUpperCase())?.pollHistory.slice(0, limit) ?? []);
   }
 
   async listFeedback(code: string): Promise<FeedbackItem[]> {

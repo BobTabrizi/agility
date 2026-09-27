@@ -1,7 +1,7 @@
 # Agility
 
-A room-based app for team activities: planning poker, an anonymous feedback box, plinko, and a
-team randomizer.
+A room-based app for team activities: planning poker, an anonymous feedback box, plinko, a team
+randomizer, and polls.
 
 Anyone can create a room and share its link with their team. The creator becomes the room's
 first admin (tracked via a token stored in their browser, not an account) and can make others
@@ -29,8 +29,8 @@ participants stay in sync in real time over a Socket.IO connection.
 - **DynamoDB table setup** (for `DYNAMODB_TABLE_NAME`, and a second identical table for
   `DYNAMODB_TEST_TABLE` if you run `npm run test:dynamo`): partition key `pk` (String), sort key
   `sk` (String), on-demand capacity, and TTL turned on for the attribute `expiresAt`. Each room is
-  a `ROOM` item plus one small item per poker round and per feedback submission, so no item grows
-  without bound. The access key needs `GetItem`, `PutItem`, `UpdateItem`, `DeleteItem`, `Query`,
+  a `ROOM` item plus one small item per poker round, per finished poll and per feedback
+  submission, so no item grows without bound. The access key needs `GetItem`, `PutItem`, `UpdateItem`, `DeleteItem`, `Query`,
   `BatchWriteItem` and `ConditionCheckItem` on both tables.
 
 ## Running locally
@@ -78,21 +78,34 @@ touches AWS: the DynamoDB tests run against a real (pay-per-request) table, so t
   invite link. The creator can't be kicked, and you can't kick yourself. Kicking someone who's
   "Away" is a way to tidy up the roster.
 - **Activities**: an admin picks which activity is active for the whole room (Planning Poker,
-  Feedback Box, Plinko, or Team Randomizer) via the tabs at the top; everyone in the room sees the
-  same activity, and its name is shown in the header next to the room name.
+  Feedback Box, Plinko, Team Randomizer, or Poll) from the dropdown on the activity name, next to the
+  room name; everyone in the room sees the same activity. Participants can open the dropdown to
+  see the options, but they're disabled — only admins can switch.
   - **Planning Poker** — deck is admin-customizable (numbers, sizes, or short text options),
     votes are hidden until an admin reveals them, then shows each vote plus the average of
     numeric votes. An anonymous-voting toggle hides who voted what (names stay visible, values
     don't) and resets the round when flipped. Past rounds are kept as poker history (topic, votes,
-    average), reachable from the "⋮" menu next to the activity tabs and loaded only when you open
-    it — anonymous rounds stay anonymous in history even if the toggle is switched off later.
-  - **Feedback Box** — participants submit free-text feedback with no name attached (no limit on
-    how many); only admins can see submitted messages (others just see a running submission
-    count), and the list loads when an admin opens the Feedback Box.
+    average), reachable from the "View past rounds" link under the cards and loaded only when you
+    open it — anonymous rounds stay anonymous in history even if the toggle is switched off later.
+    Admins change the deck from the "⋮" at the top of the card picker.
+  - **Feedback Box** — participants submit free-text feedback (up to 2,000 characters each, with a
+    counter as you type) with no name attached, and there's no limit on how many; only admins can
+    see submitted messages (others just see a running submission count), and the list loads when
+    an admin opens the Feedback Box.
   - **Plinko** — an admin enters a list of options, "Drop the ball" picks one at random server-side
     and every client plays the same reveal animation.
   - **Team Randomizer** — an admin enters a list of names and a desired team count; "Generate teams"
     shuffles the names server-side and splits them round-robin into that many teams.
+  - **Poll** — StrawPoll-style: an admin asks a question with 2–10 options and chooses whether
+    people can pick more than one, and whether it's anonymous (only counts shown — the default) or
+    named (voters listed under each option). Everyone votes and can change their vote until the
+    admin closes the poll. Participants see the results only once they've voted (or the poll is
+    closed), so early results don't sway them; admins see them live. Votes stay counted if the
+    voter disconnects (unlike poker). Finished polls — closed, or replaced by a new poll while
+    still open — are kept as poll history (question, final counts, and names for named polls),
+    reachable from the "View past polls" link under the poll; reopening and re-closing a poll
+    updates its entry. Polls
+    nobody voted in aren't kept.
 
 ## Deploying (AWS, later)
 
@@ -136,10 +149,10 @@ changes:
 - Room data is in-memory only by default — restarting the server clears all rooms unless
   `ROOM_STORE=dynamodb` is set (see above), in which case a `DynamoRoomStore` persists rooms in a
   real DynamoDB table instead.
-- With DynamoDB, poker history rounds and feedback submissions expire 60 days after they were
-  created, even if the room itself is still in use — a long-running room gradually drops its
-  oldest entries. (The in-memory store keeps them for the life of the room.) Poker history shows
-  the newest 50 rounds.
+- With DynamoDB, poker history rounds, poll history and feedback submissions expire 60 days after
+  they were recorded, even if the room itself is still in use — a long-running room gradually
+  drops its oldest entries. (The in-memory store keeps them for the life of the room.) Poker and
+  poll history each show the newest 50.
 
 ### Future considerations
 

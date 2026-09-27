@@ -1,11 +1,11 @@
 "use client";
 
 import { RoomHeader } from "@/components/RoomHeader";
-import { ActivityTabs } from "@/components/ActivityTabs";
 import { PlanningPoker } from "@/components/activities/PlanningPoker";
 import { PokerOptionsMenu } from "@/components/activities/PokerOptionsMenu";
 import { FeedbackBox } from "@/components/activities/FeedbackBox";
 import { Plinko } from "@/components/activities/Plinko";
+import { Poll } from "@/components/activities/Poll";
 import { Teams } from "@/components/activities/Teams";
 import { useRoomActions } from "@/hooks/useRoomActions";
 import { activeParticipantNames } from "@/lib/participants";
@@ -23,9 +23,6 @@ export function RoomShell({
   const actions = useRoomActions();
   const connectedParticipants = state.participants.filter((p) => p.connected);
   const activeMemberNames = activeParticipantNames(state.participants);
-  // Nothing useful behind the poker menu for a non-admin until there's history to look at.
-  const showPokerOptions =
-    state.activeActivity === "poker" && (isAdmin || state.pokerHistorySummary.count > 0);
 
   return (
     <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
@@ -41,28 +38,8 @@ export function RoomShell({
           onAppointAdmin={actions.appointAdmin}
           onRevokeAdmin={actions.revokeAdmin}
           onKick={actions.kick}
+          onChangeActivity={actions.setActivity}
         />
-
-        {/* Participants see the current activity in the header, so this row is
-            the admin's activity switcher plus the poker menu — and isn't
-            rendered at all when a participant has neither, so it doesn't leave
-            an empty gap. */}
-        {(isAdmin || showPokerOptions) && (
-          <div className="flex items-center gap-2">
-            {isAdmin && <ActivityTabs active={state.activeActivity} onChange={actions.setActivity} />}
-            {showPokerOptions && (
-              <div className="ml-auto">
-                <PokerOptionsMenu
-                  historySummary={state.pokerHistorySummary}
-                  onFetchHistory={actions.fetchPokerHistory}
-                  deck={state.poker.deck}
-                  isAdmin={isAdmin}
-                  onSetDeck={actions.setDeck}
-                />
-              </div>
-            )}
-          </div>
-        )}
 
         {state.activeActivity === "poker" && (
           <PlanningPoker
@@ -75,6 +52,9 @@ export function RoomShell({
             onReset={actions.reset}
             onSetTopic={actions.setTopic}
             onSetAnonymous={actions.setAnonymous}
+            optionsMenu={isAdmin ? <PokerOptionsMenu deck={state.poker.deck} onSetDeck={actions.setDeck} /> : null}
+            historySummary={state.pokerHistorySummary}
+            onFetchHistory={actions.fetchPokerHistory}
           />
         )}
 
@@ -103,6 +83,18 @@ export function RoomShell({
             isAdmin={isAdmin}
             activeMemberNames={activeMemberNames}
             onGenerate={actions.generateTeams}
+          />
+        )}
+
+        {state.activeActivity === "poll" && (
+          <Poll
+            poll={state.poll}
+            isAdmin={isAdmin}
+            historySummary={state.pollHistorySummary}
+            onFetchHistory={actions.fetchPollHistory}
+            onCreate={actions.createPoll}
+            onVote={actions.votePoll}
+            onSetClosed={actions.setPollClosed}
           />
         )}
       </div>

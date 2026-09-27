@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { FeedbackItem, PokerHistoryEntry } from "@/lib/types";
+import type { FeedbackItem, PokerHistoryEntry, PollHistoryEntry } from "@/lib/types";
 import type { RoomStore } from "@/server/roomStore";
 import { RoomConflictError, SKIP, updateRoom } from "@/server/roomUpdates";
 
@@ -27,6 +27,10 @@ export function testRoomStoreContract(createStore: () => RoomStore) {
       expect(room.poker.deck.length).toBeGreaterThan(0);
       expect(room.pokerHistorySummary).toEqual({ count: 0, latestRevealedAt: null });
       expect(room.feedback).toEqual({ submissionCount: 0 });
+      expect(room.poll.id).toBeNull();
+      expect(room.poll.votes).toEqual({});
+      expect(room.pollHistorySummary).toEqual({ count: 0, latestRecordedAt: null });
+      expect(await store.listPollHistory(room.code, 50)).toEqual([]);
       expect(await store.listPokerHistory(room.code, 50)).toEqual([]);
       expect(await store.listFeedback(room.code)).toEqual([]);
       expect(room.plinko).toEqual({ options: [], isRunning: false, winner: null, seed: null });
@@ -126,10 +130,12 @@ export function testRoomStoreContract(createStore: () => RoomStore) {
       const { code } = await store.createRoom("Team");
       await updateRoom(store, code, () => ({ addPokerHistory: historyEntry("r1", 1_000) }));
       await store.addFeedback(code, feedbackItem("f1", 1_000));
+      await updateRoom(store, code, () => ({ addPollHistory: pollResult("p1", 1_000) }));
 
       await store.deleteRoom(code);
 
       expect(await store.listPokerHistory(code, 50)).toEqual([]);
+      expect(await store.listPollHistory(code, 50)).toEqual([]);
       expect(await store.listFeedback(code)).toEqual([]);
     });
 
@@ -325,7 +331,7 @@ export function testRoomStoreContract(createStore: () => RoomStore) {
       const stale = (await store.getRoom(code))!;
       await store.setVote(code, "alice", "5"); // makes `stale` out of date
 
-      await expect(store.saveRoom(stale, historyEntry("lost", 1_000))).rejects.toBeInstanceOf(RoomConflictError);
+      await expect(store.saveRoom(stale, { pokerRound: historyEntry("lost", 1_000) })).rejects.toBeInstanceOf(RoomConflictError);
       expect(await store.listPokerHistory(code, 50)).toEqual([]);
     });
 
@@ -382,6 +388,149 @@ export function testRoomStoreContract(createStore: () => RoomStore) {
       expect(await store.listFeedback("NOPE99")).toEqual([]);
     });
   });
+
+  describe("setPollVote", () => {
+    // A room on the Poll activity with an open poll (options a, b, c).
+    async function roomWithPoll(store: RoomStore, multiple = false) {
+      const { code } = await store.createRoom("Team");
+      await updateRoom(store, code, (room) => {
+        room.activeActivity = "poll";
+        room.poll = {
+          id: "poll1",
+          createdAt: 1_000,
+          recordedAt: null,
+          question: "Lunch?",
+          options: [
+            { id: "a", text: "Tacos" },
+            { id: "b", text: "Pizza" },
+            { id: "c", text: "Sushi" },
+          ],
+          optionIds: ["a", "b", "c"],
+          multiple,
+          anonymous: true,
+          closed: false,
+          votes: {},
+        };
+      });
+      return code;
+    }
+
+    it("records, changes and clears a vote, bumping the version", async () => {
+      const store = createStore();
+      const code = await roomWithPoll(store);
+
+      const voted = await store.setPollVote(code, "alice", "poll1", ["a"]);
+      expect(voted?.poll.votes).toEqual({ alice: ["a"] });
+
+      const changed = await store.setPollVote(code, "alice", "poll1", ["b"]);
+      expect(changed?.poll.votes).toEqual({ alice: ["b"] });
+      expect(changed!.version).toBe(voted!.version + 1);
+
+      const cleared = await store.setPollVote(code, "alice", "poll1", []);
+      expect(cleared?.poll.votes).toEqual({});
+    });
+
+    it("accepts several options only on a multiple-choice poll", async () => {
+      const store = createStore();
+      const single = await roomWithPoll(store, false);
+      expect(await store.setPollVote(single, "alice", "poll1", ["a", "b"])).toBeUndefined();
+
+      const multi = await roomWithPoll(store, true);
+      expect((await store.setPollVote(multi, "alice", "poll1", ["a", "c"]))?.poll.votes).toEqual({
+        alice: ["a", "c"],
+      });
+    });
+
+    it("rejects unknown options, a replaced poll, a closed poll, and another activity", async () => {
+      const store = createStore();
+      const code = await roomWithPoll(store);
+
+      expect(await store.setPollVote(code, "alice", "poll1", ["zzz"])).toBeUndefined();
+      expect(await store.setPollVote(code, "alice", "old-poll", ["a"])).toBeUndefined();
+
+      await updateRoom(store, code, (room) => {
+        room.poll.closed = true;
+      });
+      expect(await store.setPollVote(code, "alice", "poll1", ["a"])).toBeUndefined();
+
+      await updateRoom(store, code, (room) => {
+        room.poll.closed = false;
+        room.activeActivity = "poker";
+      });
+      expect(await store.setPollVote(code, "alice", "poll1", ["a"])).toBeUndefined();
+
+      expect((await store.getRoom(code))!.poll.votes).toEqual({});
+      expect(await store.setPollVote("NOPE99", "alice", "poll1", ["a"])).toBeUndefined();
+    });
+
+    it("lands every vote when everyone votes at once", async () => {
+      const store = createStore();
+      const code = await roomWithPoll(store);
+      const voters = Array.from({ length: 10 }, (_, i) => `voter${i}`);
+
+      const results = await Promise.all(voters.map((id, i) => store.setPollVote(code, id, "poll1", [["a", "b", "c"][i % 3]])));
+
+      expect(results.every(Boolean)).toBe(true);
+      expect(Object.keys((await store.getRoom(code))!.poll.votes).sort()).toEqual([...voters].sort());
+    });
+
+    it("makes an older whole-room copy stale, like a poker vote does", async () => {
+      const store = createStore();
+      const code = await roomWithPoll(store);
+      const readBefore = (await store.getRoom(code))!;
+      await store.setPollVote(code, "alice", "poll1", ["a"]);
+      await expect(store.saveRoom(readBefore)).rejects.toBeInstanceOf(RoomConflictError);
+    });
+  });
+
+  describe("poll history", () => {
+    it("stores a finished poll atomically with the room save, newest first, with a limit", async () => {
+      const store = createStore();
+      const { code } = await store.createRoom("Team");
+      for (const [id, at] of [["p1", 1_000], ["p2", 2_000], ["p3", 3_000]] as const) {
+        const result = await updateRoom(store, code, () => ({ addPollHistory: pollResult(id, at) }));
+        expect(result.status).toBe("saved");
+      }
+      expect((await store.listPollHistory(code, 50)).map((e) => e.id)).toEqual(["p3", "p2", "p1"]);
+      expect((await store.listPollHistory(code, 2)).map((e) => e.id)).toEqual(["p3", "p2"]);
+    });
+
+    // A poll can be closed, reopened and closed again: its entry is updated
+    // in place rather than appearing twice.
+    it("replaces the entry when the same poll is recorded again", async () => {
+      const store = createStore();
+      const { code } = await store.createRoom("Team");
+      await updateRoom(store, code, () => ({ addPollHistory: pollResult("p1", 1_000, 2) }));
+      await updateRoom(store, code, () => ({ addPollHistory: pollResult("p1", 1_000, 5) }));
+
+      const history = await store.listPollHistory(code, 50);
+      expect(history).toHaveLength(1);
+      expect(history[0].voterCount).toBe(5);
+    });
+
+    it("doesn't store the result when the room save is rejected as stale", async () => {
+      const store = createStore();
+      const { code } = await store.createRoom("Team");
+      const stale = (await store.getRoom(code))!;
+      await store.setVote(code, "alice", "5");
+      await expect(store.saveRoom(stale, { pollResult: pollResult("lost", 1_000) })).rejects.toBeInstanceOf(
+        RoomConflictError
+      );
+      expect(await store.listPollHistory(code, 50)).toEqual([]);
+    });
+
+    it("keeps anonymous (null) voter names as stored", async () => {
+      const store = createStore();
+      const { code } = await store.createRoom("Team");
+      const entry: PollHistoryEntry = {
+        ...pollResult("p1", 1_000),
+        anonymous: true,
+        results: [{ text: "Tacos", count: 2, voters: null }],
+      };
+      await updateRoom(store, code, () => ({ addPollHistory: entry }));
+      expect(await store.listPollHistory(code, 50)).toEqual([entry]);
+    });
+  });
 }
 
 function historyEntry(id: string, revealedAt: number): PokerHistoryEntry {
@@ -390,4 +539,20 @@ function historyEntry(id: string, revealedAt: number): PokerHistoryEntry {
 
 function feedbackItem(id: string, createdAt: number): FeedbackItem {
   return { id, text: `Feedback ${id}`, createdAt };
+}
+
+function pollResult(id: string, createdAt: number, voterCount = 2): PollHistoryEntry {
+  return {
+    id,
+    question: `Question ${id}`,
+    createdAt,
+    recordedAt: createdAt + 500,
+    multiple: false,
+    anonymous: false,
+    voterCount,
+    results: [
+      { text: "Tacos", count: voterCount, voters: ["Alice", "Bob"].slice(0, voterCount) },
+      { text: "Pizza", count: 0, voters: [] },
+    ],
+  };
 }

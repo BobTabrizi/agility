@@ -1,11 +1,19 @@
-export type ActivityType = "poker" | "feedback" | "plinko" | "teams";
+export type ActivityType = "poker" | "feedback" | "plinko" | "teams" | "poll";
 
 export const ACTIVITIES: { id: ActivityType; label: string }[] = [
   { id: "poker", label: "Planning Poker" },
   { id: "feedback", label: "Feedback Box" },
   { id: "plinko", label: "Plinko" },
   { id: "teams", label: "Team Randomizer" },
+  { id: "poll", label: "Poll" },
 ];
+
+export const MAX_POLL_QUESTION_LENGTH = 200;
+export const MIN_POLL_OPTIONS = 2;
+export const MAX_POLL_OPTIONS = 10;
+export const MAX_POLL_OPTION_LENGTH = 100;
+/** The newest this many finished polls are what the poll history dialog shows. */
+export const MAX_POLL_HISTORY = 50;
 
 // Enforced by POST /api/rooms as well as the create form's maxLength — the
 // form alone doesn't stop a direct API call.
@@ -71,6 +79,13 @@ export interface FeedbackItem {
 // dialog (`poker:getHistory`), feedback items by admins viewing the Feedback
 // Box (`feedback:getItems`).
 
+/**
+ * Longest feedback submission, in characters — enforced by the server
+ * (`feedback:submit`) as well as the text box. Keeps each stored submission
+ * (and the write that stores it) small.
+ */
+export const MAX_FEEDBACK_LENGTH = 2000;
+
 /** The newest this many rounds are what the history dialog shows. */
 export const MAX_POKER_HISTORY = 50;
 
@@ -99,6 +114,74 @@ export interface TeamsState {
   teams: string[][];
 }
 
+export interface PollOption {
+  id: string;
+  text: string;
+}
+
+/** A poll as stored on the room. Never sent to clients as-is — see PublicPollState. */
+export interface PollState {
+  // null until an admin starts the first poll. A new poll gets a new id, which
+  // is how a vote cast for a poll that's since been replaced gets rejected.
+  id: string | null;
+  createdAt: number | null;
+  // When this poll's results were last saved to poll history (on close, or
+  // when a new poll replaced it) — null if never. Lets a reopened-and-reclosed
+  // poll update its history entry instead of counting as a second poll.
+  recordedAt: number | null;
+  question: string;
+  options: PollOption[];
+  // The option ids again as a plain list, so a vote's "is this a real option?"
+  // check can be a DynamoDB condition (contains() works on lists of strings,
+  // not on a list of objects).
+  optionIds: string[];
+  multiple: boolean;
+  anonymous: boolean;
+  closed: boolean;
+  votes: Record<string, string[]>; // participantId -> chosen option ids
+}
+
+/**
+ * A poll as one viewer sees it, built per socket in toPublicState(): results
+ * are only included once that viewer may see them (admins always; others once
+ * they've voted, or when the poll is closed), and voter names only for
+ * non-anonymous polls. Enforced server-side — a participant who hasn't voted
+ * receives no results at all, not just hidden ones.
+ */
+export interface PublicPollState {
+  id: string | null;
+  question: string;
+  options: PollOption[];
+  multiple: boolean;
+  anonymous: boolean;
+  closed: boolean;
+  voterCount: number;
+  myVote: string[];
+  results: { optionId: string; count: number; voters: string[] | null }[] | null;
+}
+
+/**
+ * A finished poll as kept in poll history (stored beside the room, like poker
+ * rounds). Names are resolved when it's recorded, and are null throughout for
+ * an anonymous poll — so it stays anonymous in history.
+ */
+export interface PollHistoryEntry {
+  id: string; // the poll's id — re-recording the same poll replaces its entry
+  question: string;
+  createdAt: number;
+  recordedAt: number;
+  multiple: boolean;
+  anonymous: boolean;
+  voterCount: number;
+  results: { text: string; count: number; voters: string[] | null }[];
+}
+
+export interface PollHistorySummary {
+  count: number;
+  // Changes whenever a poll is recorded, so an open history dialog knows to reload.
+  latestRecordedAt: number | null;
+}
+
 export interface RoomState {
   code: string;
   name: string;
@@ -110,10 +193,13 @@ export interface RoomState {
   feedback: FeedbackState;
   plinko: PlinkoState;
   teams: TeamsState;
+  poll: PollState;
+  pollHistorySummary: PollHistorySummary;
 }
 
 /** What is sent to a given socket on every change. */
-export type PublicRoomState = RoomState & {
+export type PublicRoomState = Omit<RoomState, "poll"> & {
+  poll: PublicPollState;
   // Whether the socket receiving this state is an admin right now. Pushed
   // with every broadcast (not just the join ack) so being appointed or
   // removed as admin takes effect without a rejoin.
@@ -129,6 +215,9 @@ export type PublicRoomState = RoomState & {
 
 /** Reply to `poker:getHistory` — newest first, at most MAX_POKER_HISTORY. */
 export type PokerHistoryResponse = { ok: true; entries: PokerHistoryEntry[] } | { ok: false; error: string };
+
+/** Reply to `poll:getHistory` — newest first, at most MAX_POLL_HISTORY. */
+export type PollHistoryResponse = { ok: true; entries: PollHistoryEntry[] } | { ok: false; error: string };
 
 /** Reply to `feedback:getItems` (admins only) — newest first. */
 export type FeedbackItemsResponse = { ok: true; items: FeedbackItem[] } | { ok: false; error: string };

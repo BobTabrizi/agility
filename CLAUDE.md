@@ -70,16 +70,22 @@ port 3000 keeps answering — check which process owns the port before assuming 
   (a thin wrapper emitting a socket event) and wait for the resulting broadcast to update the UI via
   `useRoomConnection`.
 
-- **A room is one main record plus two lists stored beside it**, not inside it: poker history rounds
-  and feedback submissions. The room (`StoredRoom`) only carries counts for them
-  (`pokerHistorySummary`, `feedback.submissionCount`). In DynamoDB (layout comment at the top of
-  `dynamoRoomStore.ts`) that's one table keyed `pk` = room code + `sk`: `ROOM`, `HISTORY#<time>#<id>`,
-  `FEEDBACK#<time>#<id>`. Why: DynamoDB bills every write by the whole item's size, so history inside
+- **A room is one main record plus lists stored beside it**, not inside it: poker history rounds,
+  poll history, and feedback submissions. The room (`StoredRoom`) only carries counts for them
+  (`pokerHistorySummary`, `pollHistorySummary`, `feedback.submissionCount`). In DynamoDB (layout
+  comment at the top of `dynamoRoomStore.ts`) that's one table keyed `pk` = room code + `sk`: `ROOM`,
+  `HISTORY#<time>#<id>`, `POLL#<createdAt>#<pollId>`, `FEEDBACK#<time>#<id>`. Why: DynamoDB bills
+  every write by the whole item's size, so history inside
   the room made each vote ~70x dearer at the 50-round cap; and items max out at 400 KB, which
   uncapped feedback inside the room could eventually hit and break the room. Consequences:
   - A reveal writes the room and its history round in one DynamoDB transaction (`saveRoom(room,
-    historyEntry)`, reached by returning `{ addPokerHistory }` from a `changeRoom` change), so a
-    retried reveal can't duplicate or orphan a round. A plain write that lands on the room
+    { pokerRound })`, reached by returning `{ addPokerHistory }` from a `changeRoom` change), so a
+    retried reveal can't duplicate or orphan a round. Finished polls work the same way
+    (`{ addPollHistory }` → `{ pollResult }`): `finishPoll()` in `socketServer.ts` snapshots a poll
+    when it's closed, or when a new poll replaces it while still open (polls with no votes aren't
+    recorded, like empty poker rounds). A poll's history item is keyed by its id, so a poll that's
+    reopened and closed again overwrites its entry; `poll.recordedAt` keeps it from counting twice
+    in `pollHistorySummary`. A plain write that lands on the room
     mid-transaction gets `TransactionConflictException`; `setVote`/`addFeedback` retry that briefly.
   - Feedback submissions are deliberately *not* a transaction (bursts of transactions on one room
     cancel each other): `addFeedback` stores the item, then bumps the count in one `UpdateItem`.
@@ -88,7 +94,9 @@ port 3000 keeps answering — check which process owns the port before assuming 
     from one `Query` on the sort-key prefix, newest first; history is capped at the newest
     `MAX_POKER_HISTORY` (50) when read, not when written.
   - A new room's starting state comes from `newRoom()` (`src/server/newRoom.ts`), shared by both
-    stores — add a default for any new `StoredRoom` field there, not per store.
+    stores — add a default for any new `StoredRoom` field there, not per store. Rooms already in
+    DynamoDB won't have a newly added field: fill it in on read in `roomFromItem`
+    (`dynamoRoomStore.ts`), as it does for `poll`, and the next whole-room save persists it.
 
 - **Concurrent writes — never `getRoom` + `saveRoom` by hand.** Two handlers editing the same room at
   once (two people voting) used to silently lose one change: each loaded the room, changed its own
@@ -109,9 +117,12 @@ port 3000 keeps answering — check which process owns the port before assuming 
     (`createKeyedQueue`), so a burst from one instance runs one at a time instead of piling into
     retries; the version check then only has to catch writes from other instances. Each queued
     update costs a read + a write (~60ms from a dev machine to AWS, a few ms in-region).
-  - **Votes and feedback submissions are the exception** — the burstiest writes (everyone votes or
-    submits at once), so they skip all of the above. `RoomStore.addFeedback` is described above;
-    `RoomStore.setVote` writes just that voter's field (a DynamoDB `UpdateItem` on
+  - **Votes (poker and poll) and feedback submissions are the exception** — the burstiest writes
+    (everyone votes or submits at once), so they skip all of the above. `RoomStore.addFeedback` is
+    described above; `RoomStore.setPollVote` works like `setVote` (its condition — right poll id,
+    open, each id in `poll.optionIds`, several ids only if `multiple` — is built per call, since
+    DynamoDB rejects unused placeholder values); `RoomStore.setVote` writes just that voter's field
+    (a DynamoDB `UpdateItem` on
     `poker.votes.<participantId>`), with the rules (poker active, not revealed, card is in the
     current deck) as a condition checked at write time. No read, no queue, no conflicts between
     voters. It still bumps `version`, which is what lets the two paths mix: a whole-room save that
@@ -130,10 +141,10 @@ port 3000 keeps answering — check which process owns the port before assuming 
     version. A 40-vote burst reaches each client as ~4–11 updates instead of 40. Each broadcast is
     one JSON serialization per connected socket (admins and participants get different views), so
     this is where the CPU goes in a busy room.
-  - Poker history and feedback text are never pushed — only their counts, which ride along in the
-    room. They're fetched on demand with a request/ack (`poker:getHistory` / `feedback:getItems`,
-    `fetchPokerHistory` / `fetchFeedbackItems` in `useRoomActions`): the history dialog fetches when
-    it opens, the admin's Feedback Box when it's shown, and each refetches when its count (or
+  - Poker history, poll history and feedback text are never pushed — only their counts, which ride
+    along in the room. They're fetched on demand with a request/ack (`poker:getHistory` /
+    `poll:getHistory` / `feedback:getItems`, `fetchPokerHistory` / `fetchPollHistory` /
+    `fetchFeedbackItems` in `useRoomActions`): the history dialogs fetch when they open, the admin's Feedback Box when it's shown, and each refetches when its count (or
     `latestRevealedAt`) changes while open — so only people actually looking download the lists.
     Anything else that's large and only occasionally viewed should follow the same pattern.
 
@@ -176,8 +187,10 @@ port 3000 keeps answering — check which process owns the port before assuming 
     `truncate` clipped it further.
 
 - **Two different kinds of "hidden" data**: some data is withheld server-side — Feedback Box text
-  is never sent to non-admins at all (`feedback:getItems` checks `isRoomAdmin`; `toPublicState()` in
-  `socketServer.ts` is where per-socket stripping of pushed state would go).
+  is never sent to non-admins at all (`feedback:getItems` checks `isRoomAdmin`), and polls are
+  shaped per viewer in `toPublicPoll()` (`socketServer.ts`, called from `toPublicState()` for each
+  socket): the stored votes never leave the server; a viewer gets counts only once they may see
+  results (admin, has voted, or poll closed) and voter names only for a non-anonymous poll.
   Planning Poker's anonymous-voting mode is different: vote values are sent to every client as usual,
   and the UI (`PlanningPoker.tsx`) simply declines to render the per-person mapping. If anonymity ever
   needs to be enforced server-side, that's a `toPublicState()`-style change, not a UI change.
@@ -197,13 +210,22 @@ port 3000 keeps answering — check which process owns the port before assuming 
 
 - **Client draft-sync idiom**: components holding a locally-editable draft of a server-pushed value
   that stays mounted while that value can change underneath it (the poker topic input in
-  `PlanningPoker.tsx`, Plinko's options textarea, Team Randomizer's name/count inputs) pair a draft
+  `PlanningPoker.tsx`, Plinko's options textarea, Team Randomizer's name/count inputs, a poll's
+  selected options in `Poll.tsx`) pair a draft
   `useState` with a `lastSeenX` `useState`, updated inline during render when the server value
   changes — not a `useEffect`. `useEffect` in this codebase is reserved for actual side effects (e.g.
   Plinko's chained-`setTimeout` reveal animation), not for mirroring a prop/server value into local
   state. `PokerDeckModal.tsx` deliberately skips this: it mounts fresh every time the modal opens, so
   a plain `useState(deck.join(", "))` is enough — no risk of the prop changing under an already-open
-  draft the way there is for something that stays mounted.
+  draft the way there is for something that stays mounted. The poll editor (`PollEditor`) is the
+  same case, and a live poll's view is keyed by poll id so a new poll starts with a fresh selection.
+
+- **Where things live in the room UI** (so new activities follow suit): the activity switcher is the
+  dropdown on the activity name in the header (`ActivityMenu.tsx`) — everyone can open it, only
+  admins can pick, and non-admins see the options disabled. An activity's history is a
+  `HistoryLink` under its card ("View past rounds" / "View past polls"), shown once there's history
+  and deliberately without a count (see the component). Per-activity admin settings go in a "⋮" in
+  the relevant card's corner (the deck menu, `PokerOptionsMenu`, sits on the card picker).
 
 - **Scaling caveat**: a Socket.IO client must stay connected to the instance it joined a room on.
   `ROOM_STORE=dynamodb` solves the room-*data* half of running multiple instances (any instance can
@@ -217,7 +239,10 @@ port 3000 keeps answering — check which process owns the port before assuming 
   implementation must have: case-insensitive codes, defaults, persistence, no-op on missing rooms,
   the optimistic-concurrency rules (copies on read, stale saves rejected, concurrent `updateRoom`
   calls all applied), `setVote` (concurrent voters all land, disallowed votes ignored, and a vote
-  makes an older whole-room copy stale), poker history (atomic with the room save — a rejected save
+  makes an older whole-room copy stale), `setPollVote` (single vs. multiple choice, unknown option,
+  replaced or closed poll, wrong activity, concurrent voters), poll history (atomic with the room
+  save, re-recording a poll replaces its entry, newest first, limit), poker history (atomic with the
+  room save — a rejected save
   stores no round; newest first; limit), `addFeedback` (concurrent submissions all land, nothing
   stored for a missing room), and `deleteRoom` taking the lists with it. `roomStore.test.ts` runs it
   against `InMemoryRoomStore`; `dynamoRoomStore.test.ts` runs the *same* suite against a real

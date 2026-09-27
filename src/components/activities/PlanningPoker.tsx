@@ -1,7 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import type { Participant, PokerState } from "@/lib/types";
+import { useState, type ReactNode } from "react";
+import { HistoryLink } from "@/components/HistoryLink";
+import { PokerHistoryModal } from "@/components/activities/PokerHistoryModal";
+import {
+  type Participant,
+  type PokerHistoryEntry,
+  type PokerHistorySummary,
+  type PokerState,
+} from "@/lib/types";
 import { PokerVoteChart } from "@/components/activities/PokerVoteChart";
 
 export function PlanningPoker({
@@ -14,6 +21,9 @@ export function PlanningPoker({
   onReset,
   onSetTopic,
   onSetAnonymous,
+  optionsMenu,
+  historySummary,
+  onFetchHistory,
 }: {
   poker: PokerState;
   participants: Participant[];
@@ -24,7 +34,12 @@ export function PlanningPoker({
   onReset: () => void;
   onSetTopic: (topic: string) => void;
   onSetAnonymous: (anonymous: boolean) => void;
+  // Admin-only poker settings ("⋮"), shown top-right of the card picker; null for participants.
+  optionsMenu: ReactNode;
+  historySummary: PokerHistorySummary;
+  onFetchHistory: () => Promise<PokerHistoryEntry[]>;
 }) {
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [topicDraft, setTopicDraft] = useState(poker.topic);
   const [lastSeenTopic, setLastSeenTopic] = useState(poker.topic);
   if (poker.topic !== lastSeenTopic) {
@@ -47,6 +62,7 @@ export function PlanningPoker({
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Topic: editable by admins, read-only for participants. */}
       <div className="rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
         {isAdmin ? (
           <form
@@ -60,11 +76,12 @@ export function PlanningPoker({
             className="flex items-center gap-2"
           >
             <input
+              aria-label="Topic"
               value={topicDraft}
               onChange={(e) => setTopicDraft(e.target.value)}
               placeholder="What are we estimating? (shown to everyone in the room)"
               maxLength={200}
-              className="flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
+              className="min-w-0 flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
             />
             {!topicIsUnsaved && justSavedTopic && (
               <span className="text-sm text-emerald-600 dark:text-emerald-400">Saved ✓</span>
@@ -78,8 +95,11 @@ export function PlanningPoker({
             </button>
           </form>
         ) : (
-          <p className="text-lg font-medium text-neutral-900 dark:text-neutral-50">
-            {poker.topic || "Waiting for the admin to set a topic…"}
+          <p className="truncate text-lg text-neutral-900 dark:text-neutral-50" title={poker.topic || undefined}>
+            <span className="font-medium text-neutral-500 dark:text-neutral-400">Topic: </span>
+            <span className={poker.topic ? "font-medium" : "text-neutral-400 dark:text-neutral-500"}>
+              {poker.topic || "None"}
+            </span>
           </p>
         )}
       </div>
@@ -177,9 +197,10 @@ export function PlanningPoker({
 
       {!poker.revealed && (
         <div className="rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
-          <p className="mb-3 text-sm font-medium text-neutral-500 dark:text-neutral-400">
-            Pick your card
-          </p>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <p className="text-sm font-medium text-neutral-500 dark:text-neutral-400">Pick your card</p>
+            {optionsMenu}
+          </div>
           <div className="flex flex-wrap gap-2">
             {poker.deck.map((card) => {
               const selected = myVote === card;
@@ -205,6 +226,19 @@ export function PlanningPoker({
       )}
 
       {poker.revealed && <PokerVoteChart votes={poker.votes} deck={poker.deck} />}
+
+      <HistoryLink
+        label="View past rounds"
+        show={historySummary.count > 0}
+        onOpen={() => setHistoryOpen(true)}
+      />
+      {historyOpen && (
+        <PokerHistoryModal
+          latestRevealedAt={historySummary.latestRevealedAt}
+          onFetch={onFetchHistory}
+          onClose={() => setHistoryOpen(false)}
+        />
+      )}
     </div>
   );
 }

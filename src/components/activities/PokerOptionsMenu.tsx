@@ -2,26 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { PokerDeckModal } from "@/components/activities/PokerDeckModal";
-import { PokerHistoryModal } from "@/components/activities/PokerHistoryModal";
-import { MAX_POKER_HISTORY, type PokerHistoryEntry, type PokerHistorySummary } from "@/lib/types";
-
-export function PokerOptionsMenu({
-  historySummary,
-  onFetchHistory,
-  deck,
-  isAdmin,
-  onSetDeck,
-}: {
-  historySummary: PokerHistorySummary;
-  onFetchHistory: () => Promise<PokerHistoryEntry[]>;
-  deck: string[];
-  isAdmin: boolean;
-  onSetDeck: (deck: string[]) => void;
-}) {
+/** Admin-only poker settings menu. (Poker history is a link under the poker cards.) */
+export function PokerOptionsMenu({ deck, onSetDeck }: { deck: string[]; onSetDeck: (deck: string[]) => void }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  // The dialog shows the newest MAX_POKER_HISTORY rounds; count is every round recorded.
-  const shownRounds = Math.min(historySummary.count, MAX_POKER_HISTORY);
-  const [openModal, setOpenModal] = useState<"history" | "deck" | null>(null);
+  const [deckOpen, setDeckOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -63,41 +47,18 @@ export function PokerOptionsMenu({
           <button
             type="button"
             role="menuitem"
-            disabled={shownRounds === 0}
             onClick={() => {
-              setOpenModal("history");
+              setDeckOpen(true);
               setMenuOpen(false);
             }}
-            className="block w-full px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent dark:text-neutral-200 dark:hover:bg-neutral-800"
+            className="block w-full px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-200 dark:hover:bg-neutral-800"
           >
-            Poker history{shownRounds > 0 ? ` (${shownRounds})` : ""}
+            Customize deck
           </button>
-          {isAdmin && (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpenModal("deck");
-                setMenuOpen(false);
-              }}
-              className="block w-full px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-200 dark:hover:bg-neutral-800"
-            >
-              Customize deck
-            </button>
-          )}
         </div>
       )}
 
-      {openModal === "history" && (
-        <PokerHistoryModal
-          latestRevealedAt={historySummary.latestRevealedAt}
-          onFetch={onFetchHistory}
-          onClose={() => setOpenModal(null)}
-        />
-      )}
-      {openModal === "deck" && (
-        <PokerDeckModal deck={deck} onSetDeck={onSetDeck} onClose={() => setOpenModal(null)} />
-      )}
+      {deckOpen && <PokerDeckModal deck={deck} onSetDeck={onSetDeck} onClose={() => setDeckOpen(false)} />}
     </div>
   );
 }

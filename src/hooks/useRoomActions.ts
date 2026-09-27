@@ -8,6 +8,8 @@ import type {
   FeedbackItemsResponse,
   PokerHistoryEntry,
   PokerHistoryResponse,
+  PollHistoryEntry,
+  PollHistoryResponse,
 } from "@/lib/types";
 
 export function useRoomActions() {
@@ -29,6 +31,15 @@ export function useRoomActions() {
       appointAdmin: (participantId: string) => socket.emit("admin:appoint", { participantId }),
       revokeAdmin: (participantId: string) => socket.emit("admin:revoke", { participantId }),
       kick: (participantId: string) => socket.emit("participant:kick", { participantId }),
+      createPoll: (poll: { question: string; options: string[]; multiple: boolean; anonymous: boolean }) =>
+        socket.emit("poll:create", poll),
+      votePoll: (pollId: string, optionIds: string[]) => socket.emit("poll:vote", { pollId, optionIds }),
+      setPollClosed: (closed: boolean) => socket.emit("poll:setClosed", { closed }),
+      fetchPollHistory: async (): Promise<PollHistoryEntry[]> => {
+        const res: PollHistoryResponse = await socket.timeout(10_000).emitWithAck("poll:getHistory");
+        if (!res.ok) throw new Error(res.error);
+        return res.entries;
+      },
       // A request/response rather than fire-and-forget: history isn't part of
       // the pushed room state, so the history dialog asks for it when opened.
       fetchPokerHistory: async (): Promise<PokerHistoryEntry[]> => {

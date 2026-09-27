@@ -13,7 +13,13 @@ import {
 } from "@/server/roomUpdates";
 import {
   ACTIVITIES,
+  MAX_FEEDBACK_LENGTH,
   MAX_POKER_CARD_LENGTH,
+  MAX_POLL_HISTORY,
+  MAX_POLL_OPTION_LENGTH,
+  MAX_POLL_OPTIONS,
+  MAX_POLL_QUESTION_LENGTH,
+  MIN_POLL_OPTIONS,
   MAX_POKER_HISTORY,
   MAX_TEAM_COUNT,
   MAX_TEAM_NAME_LENGTH,
@@ -23,6 +29,9 @@ import {
   type JoinAck,
   type PokerHistoryEntry,
   type PokerHistoryResponse,
+  type PollHistoryEntry,
+  type PollHistoryResponse,
+  type PublicPollState,
   type PublicRoomState,
 } from "@/lib/types";
 
@@ -39,7 +48,6 @@ interface SocketData {
 
 const MAX_NAME_LENGTH = 40;
 const MAX_CLIENT_ID_LENGTH = 100;
-const MAX_FEEDBACK_LENGTH = 2000;
 const MAX_TOPIC_LENGTH = 200;
 const MAX_PLINKO_OPTIONS = 100;
 const MAX_PLINKO_OPTION_LENGTH = 200;
@@ -69,7 +77,84 @@ function isRoomAdmin(room: StoredRoom, data: SocketData): boolean {
   return Boolean(participantId) && room.appointedAdminTokens[participantId!] === adminToken;
 }
 
-function toPublicState(room: StoredRoom, isAdmin: boolean): PublicRoomState {
+function participantName(room: StoredRoom, participantId: string): string {
+  return room.participants.find((p) => p.id === participantId)?.name ?? "Unknown";
+}
+
+/**
+ * Snapshots the current poll's results for poll history, and marks it
+ * recorded — called when it closes, or when a new poll replaces it while
+ * still open. Returns undefined (recording nothing) for a poll nobody voted
+ * in, like poker skips a round with no votes. Recording the same poll again
+ * (reopened, then closed again) produces an entry with the same id, which
+ * replaces the old one in storage; it only counts once in the summary.
+ */
+function finishPoll(room: StoredRoom): PollHistoryEntry | undefined {
+  const { poll } = room;
+  const voterIds = Object.keys(poll.votes);
+  if (!poll.id || voterIds.length === 0) return undefined;
+  const now = Date.now();
+  room.pollHistorySummary = {
+    count: room.pollHistorySummary.count + (poll.recordedAt === null ? 1 : 0),
+    latestRecordedAt: now,
+  };
+  poll.recordedAt = now;
+  return {
+    id: poll.id,
+    question: poll.question,
+    createdAt: poll.createdAt ?? now,
+    recordedAt: now,
+    multiple: poll.multiple,
+    anonymous: poll.anonymous,
+    voterCount: voterIds.length,
+    results: poll.options.map((option) => {
+      const optionVoters = voterIds.filter((id) => poll.votes[id].includes(option.id));
+      return {
+        text: option.text,
+        count: optionVoters.length,
+        // Resolved now and stored as null for an anonymous poll — so it stays
+        // anonymous in history, like an anonymous poker round.
+        voters: poll.anonymous ? null : optionVoters.map((id) => participantName(room, id)),
+      };
+    }),
+  };
+}
+
+/**
+ * The poll as `viewer` may see it. Results (counts, and names for a named
+ * poll) only go to admins, to people who've voted, and to everyone once the
+ * poll is closed — a participant who hasn't voted yet gets no results at all,
+ * so early results can't sway them even by inspecting network traffic.
+ */
+function toPublicPoll(room: StoredRoom, viewer: SocketData, isAdmin: boolean): PublicPollState {
+  const { poll } = room;
+  const myVote = (viewer.participantId && poll.votes[viewer.participantId]) || [];
+  const canSeeResults = isAdmin || myVote.length > 0 || poll.closed;
+  return {
+    id: poll.id,
+    question: poll.question,
+    options: poll.options,
+    multiple: poll.multiple,
+    anonymous: poll.anonymous,
+    closed: poll.closed,
+    voterCount: Object.keys(poll.votes).length,
+    myVote,
+    results: canSeeResults
+      ? poll.options.map((option) => {
+          const voterIds = Object.keys(poll.votes).filter((id) => poll.votes[id].includes(option.id));
+          return {
+            optionId: option.id,
+            count: voterIds.length,
+            voters: poll.anonymous ? null : voterIds.map((id) => participantName(room, id)),
+          };
+        })
+      : null,
+  };
+}
+
+/** The room as one socket sees it: its admin status, and its view of the poll. */
+function toPublicState(room: StoredRoom, viewer: SocketData): PublicRoomState {
+  const isAdmin = isRoomAdmin(room, viewer);
   return {
     code: room.code,
     name: room.name,
@@ -78,9 +163,11 @@ function toPublicState(room: StoredRoom, isAdmin: boolean): PublicRoomState {
     participants: room.participants,
     poker: room.poker,
     pokerHistorySummary: room.pokerHistorySummary,
+    pollHistorySummary: room.pollHistorySummary,
     plinko: room.plinko,
     teams: room.teams,
     feedback: room.feedback,
+    poll: toPublicPoll(room, viewer, isAdmin),
     viewerIsAdmin: isAdmin,
     appointedAdminIds: Object.keys(room.appointedAdminTokens),
     version: room.version,
@@ -92,7 +179,7 @@ async function sendRoomState(room: StoredRoom) {
   const sockets = await io!.in(roomChannel(room.code)).fetchSockets();
   for (const s of sockets) {
     const data = s.data as SocketData;
-    s.emit("room:state", toPublicState(room, isRoomAdmin(room, data)));
+    s.emit("room:state", toPublicState(room, data));
   }
 }
 
@@ -401,6 +488,88 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
       });
     });
 
+    // Starts a poll, replacing any current one (and its votes). The new id is
+    // what makes a vote cast for the old poll get rejected.
+    socket.on(
+      "poll:create",
+      (payload: { question?: string; options?: string[]; multiple?: boolean; anonymous?: boolean }) => {
+        const question = (payload?.question || "").trim().slice(0, MAX_POLL_QUESTION_LENGTH);
+        const optionTexts = [
+          ...new Set(
+            (payload?.options || [])
+              .map((o) => (typeof o === "string" ? o.trim().slice(0, MAX_POLL_OPTION_LENGTH) : ""))
+              .filter(Boolean)
+          ),
+        ].slice(0, MAX_POLL_OPTIONS);
+        return changeRoom(socket, { adminOnly: true }, (room) => {
+          if (!question) return { error: "The poll needs a question." };
+          if (optionTexts.length < MIN_POLL_OPTIONS) {
+            return { error: `The poll needs at least ${MIN_POLL_OPTIONS} different options.` };
+          }
+          // A poll replaced while still open is finished here; a closed one was
+          // already recorded when it closed.
+          const finished = room.poll.closed ? undefined : finishPoll(room);
+          const options = optionTexts.map((text) => ({ id: nanoid(8), text }));
+          room.poll = {
+            id: nanoid(10),
+            createdAt: Date.now(),
+            recordedAt: null,
+            question,
+            options,
+            optionIds: options.map((o) => o.id),
+            multiple: Boolean(payload?.multiple),
+            anonymous: payload?.anonymous !== false,
+            closed: false,
+            votes: {},
+          };
+          if (finished) return { addPollHistory: finished };
+        });
+      }
+    );
+
+    // Like poker votes: a single-field write (setPollVote) with the rules
+    // checked by the store at write time — everyone votes at once, so no read,
+    // no queue, no conflicts. An empty list clears your vote. Votes are kept
+    // if the voter disconnects (unlike poker's): a poll is a record of what
+    // people answered, not a live round.
+    socket.on("poll:vote", async (payload: { pollId?: string; optionIds?: string[] }) => {
+      const { code, participantId } = socket.data as SocketData;
+      if (!code || !participantId || typeof payload?.pollId !== "string") return;
+      const optionIds = [
+        ...new Set((Array.isArray(payload.optionIds) ? payload.optionIds : []).filter((id) => typeof id === "string")),
+      ];
+      if (optionIds.length > MAX_POLL_OPTIONS) return;
+      const room = await roomStore.setPollVote(code, participantId, payload.pollId, optionIds);
+      // undefined: not allowed (closed, replaced, not a real option, too many
+      // for a single-choice poll) — e.g. a click that raced the poll closing.
+      if (room) broadcastRoomState(room);
+    });
+
+    // Closing records the poll's results in poll history (atomically with the
+    // close); reopening lets voting resume, and closing again updates that entry.
+    socket.on("poll:setClosed", (payload: { closed?: boolean }) =>
+      changeRoom(socket, { adminOnly: true }, (room) => {
+        const closed = Boolean(payload?.closed);
+        if (!room.poll.id || room.poll.closed === closed) return SKIP;
+        room.poll.closed = closed;
+        if (!closed) return;
+        const finished = finishPoll(room);
+        if (finished) return { addPollHistory: finished };
+      })
+    );
+
+    // Like poker history: anyone in the room fetches it when they open the
+    // poll history dialog. Anonymous polls were already stored without names.
+    socket.on("poll:getHistory", async (ack?: (res: PollHistoryResponse) => void) => {
+      if (typeof ack !== "function") return;
+      const { code } = socket.data as SocketData;
+      if (!code) {
+        ack({ ok: false, error: "You're not in a room." });
+        return;
+      }
+      ack({ ok: true, entries: await roomStore.listPollHistory(code, MAX_POLL_HISTORY) });
+    });
+
     socket.on("activity:set", (payload: { activity?: ActivityType }) => {
       const activity = payload?.activity;
       if (!activity || !ACTIVITIES.some((a) => a.id === activity)) return;
@@ -497,6 +666,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
           kickedId = target.id;
           room.participants = room.participants.filter((p) => p.id !== target.id);
           delete room.poker.votes[target.id];
+          delete room.poll.votes[target.id];
           delete room.appointedAdminTokens[target.id];
         }
       );
@@ -510,7 +680,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
       const room = await roomStore.getRoom(data.code);
       if (!room) return;
       data.adminToken = payload.token;
-      socket.emit("room:state", toPublicState(room, isRoomAdmin(room, data)));
+      socket.emit("room:state", toPublicState(room, data));
     });
 
     async function markDisconnected() {

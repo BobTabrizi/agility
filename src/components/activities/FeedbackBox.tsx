@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import type { FeedbackItem, FeedbackState } from "@/lib/types";
+import { MAX_FEEDBACK_LENGTH, type FeedbackItem, type FeedbackState } from "@/lib/types";
 
 function timeAgo(ts: number): string {
   const seconds = Math.max(0, Math.floor((Date.now() - ts) / 1000));
@@ -118,7 +118,7 @@ export function FeedbackBox({
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="Share something the admin should know…"
-          maxLength={2000}
+          maxLength={MAX_FEEDBACK_LENGTH}
           rows={4}
           className="resize-none rounded-lg border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
         />
@@ -128,13 +128,23 @@ export function FeedbackBox({
           ) : (
             <span />
           )}
-          <button
-            type="submit"
-            disabled={!text.trim()}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-40"
-          >
-            Send
-          </button>
+          <div className="flex items-center gap-3">
+            {/* The box stops accepting input at the limit, so show how close you are. */}
+            <span
+              className={`text-xs tabular-nums ${
+                text.length >= MAX_FEEDBACK_LENGTH ? "text-amber-600 dark:text-amber-400" : "text-neutral-400"
+              }`}
+            >
+              {text.length} / {MAX_FEEDBACK_LENGTH}
+            </span>
+            <button
+              type="submit"
+              disabled={!text.trim()}
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-40"
+            >
+              Send
+            </button>
+          </div>
         </div>
       </form>
     </div>

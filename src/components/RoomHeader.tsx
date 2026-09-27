@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ActivityMenu } from "@/components/ActivityMenu";
 import { InviteModal } from "@/components/InviteModal";
 import { Modal } from "@/components/Modal";
 import { ParticipantMenu } from "@/components/ParticipantMenu";
 import { MAX_DISPLAY_NAME_LENGTH, truncateName } from "@/lib/participants";
-import { ACTIVITIES, type ActivityType, type Participant } from "@/lib/types";
+import type { ActivityType, Participant } from "@/lib/types";
 
 export function RoomHeader({
   name,
@@ -18,6 +19,7 @@ export function RoomHeader({
   onAppointAdmin,
   onRevokeAdmin,
   onKick,
+  onChangeActivity,
 }: {
   name: string;
   code: string;
@@ -29,6 +31,7 @@ export function RoomHeader({
   onAppointAdmin: (participantId: string) => void;
   onRevokeAdmin: (participantId: string) => void;
   onKick: (participantId: string) => void;
+  onChangeActivity: (activity: ActivityType) => void;
 }) {
   const [rosterOpen, setRosterOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -59,7 +62,6 @@ export function RoomHeader({
 
   const connectedParticipants = participants.filter((p) => p.connected);
   const hereCount = `${connectedParticipants.length} / ${participants.length}`;
-  const activityLabel = ACTIVITIES.find((a) => a.id === activeActivity)?.label;
   // You first, then everyone else in join order.
   const rosterOrder = [
     ...participants.filter((p) => p.id === selfId),
@@ -77,10 +79,7 @@ export function RoomHeader({
             {name}
           </h1>
           <span aria-hidden className="h-5 w-px shrink-0 bg-neutral-300 dark:bg-neutral-700" />
-          <p className="shrink-0 text-sm font-medium text-neutral-600 dark:text-neutral-300">
-            <span className="sr-only">Current activity: </span>
-            {activityLabel}
-          </p>
+          <ActivityMenu active={activeActivity} isAdmin={isAdmin} onChange={onChangeActivity} />
         </div>
         <p className="mt-0.5 flex items-center text-sm text-neutral-500 dark:text-neutral-400">
           <span className="sr-only">Room code </span>

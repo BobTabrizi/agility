@@ -1,4 +1,4 @@
-import type { PokerHistoryEntry } from "@/lib/types";
+import type { PokerHistoryEntry, PollHistoryEntry } from "@/lib/types";
 import type { RoomStore, StoredRoom } from "@/server/roomStore";
 
 /**
@@ -27,12 +27,17 @@ export const SKIP = Symbol("skip");
 
 /**
  * What a change can return: nothing (save the room), SKIP, `{ error }`, or
- * `{ addPokerHistory }` — save the room *and* add that history round, as one
- * atomic write (see RoomStore.saveRoom).
+ * `{ addPokerHistory }` / `{ addPollHistory }` — save the room *and* store
+ * that history entry, as one atomic write (see RoomStore.saveRoom).
  */
 export type RoomChange = (
   room: StoredRoom
-) => void | typeof SKIP | { error: string } | { addPokerHistory: PokerHistoryEntry };
+) =>
+  | void
+  | typeof SKIP
+  | { error: string }
+  | { addPokerHistory: PokerHistoryEntry }
+  | { addPollHistory: PollHistoryEntry };
 
 export type UpdateResult =
   | { status: "saved"; room: StoredRoom }
@@ -56,7 +61,7 @@ const BACKOFF_CAP_MS = 500;
  * do those after, using the returned room. `change` can mutate the room and
  * return nothing to save, return `SKIP` to save nothing, return `{ error }`
  * to reject the action (also saves nothing), or return `{ addPokerHistory }`
- * to save along with a new history round.
+ * or `{ addPollHistory }` to save along with a history entry.
  */
 export async function updateRoom(store: RoomStore, code: string, change: RoomChange): Promise<UpdateResult> {
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -68,7 +73,10 @@ export async function updateRoom(store: RoomStore, code: string, change: RoomCha
     if (outcome && "error" in outcome) return { status: "rejected", error: outcome.error };
 
     try {
-      await store.saveRoom(room, outcome?.addPokerHistory);
+      await store.saveRoom(room, {
+        pokerRound: outcome && "addPokerHistory" in outcome ? outcome.addPokerHistory : undefined,
+        pollResult: outcome && "addPollHistory" in outcome ? outcome.addPollHistory : undefined,
+      });
       return { status: "saved", room };
     } catch (err) {
       if (!(err instanceof RoomConflictError)) throw err;
