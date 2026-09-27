@@ -70,17 +70,8 @@ function AdminFeedbackList({
   );
 }
 
-export function FeedbackBox({
-  feedback,
-  isAdmin,
-  onSubmit,
-  onFetchItems,
-}: {
-  feedback: FeedbackState;
-  isAdmin: boolean;
-  onSubmit: (text: string) => void;
-  onFetchItems: () => Promise<FeedbackItem[]>;
-}) {
+/** The submission form — for participants, and for admins above the list. */
+function FeedbackForm({ isAdmin, onSubmit }: { isAdmin: boolean; onSubmit: (text: string) => void }) {
   const [text, setText] = useState("");
   const [justSubmitted, setJustSubmitted] = useState(false);
 
@@ -94,32 +85,23 @@ export function FeedbackBox({
     setTimeout(() => setJustSubmitted(false), 3000);
   }
 
-  if (isAdmin) {
-    return (
-      <div className="rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
-        <p className="mb-4 text-sm font-medium text-neutral-500 dark:text-neutral-400">
-          {feedback.submissionCount} submission{feedback.submissionCount === 1 ? "" : "s"} — fully anonymous
-        </p>
-        <AdminFeedbackList submissionCount={feedback.submissionCount} onFetch={onFetchItems} />
-      </div>
-    );
-  }
-
   return (
     <div className="rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
       <p className="mb-1 text-sm font-medium text-neutral-900 dark:text-neutral-50">
-        Anonymous feedback for the room admin
+        {isAdmin ? "Add your own feedback" : "Anonymous feedback for the room admin"}
       </p>
       <p className="mb-4 text-xs text-neutral-500 dark:text-neutral-400">
-        Your name is never attached to what you send here.
+        {isAdmin
+          ? "It's anonymous too — other admins see it like any other submission."
+          : "Your name is never attached to what you send here."}
       </p>
       <form onSubmit={handleSubmit} className="flex flex-col gap-3">
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Share something the admin should know…"
+          placeholder={isAdmin ? "Add something to the Anonymous Box…" : "Share something the admin should know…"}
           maxLength={MAX_FEEDBACK_LENGTH}
-          rows={4}
+          rows={isAdmin ? 3 : 4}
           className="resize-none rounded-lg border border-neutral-300 px-3 py-2 text-base sm:text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
         />
         <div className="flex items-center justify-between">
@@ -147,6 +129,34 @@ export function FeedbackBox({
           </div>
         </div>
       </form>
+    </div>
+  );
+}
+
+export function AnonymousBox({
+  feedback,
+  isAdmin,
+  onSubmit,
+  onFetchItems,
+}: {
+  feedback: FeedbackState;
+  isAdmin: boolean;
+  onSubmit: (text: string) => void;
+  onFetchItems: () => Promise<FeedbackItem[]>;
+}) {
+  if (!isAdmin) return <FeedbackForm isAdmin={false} onSubmit={onSubmit} />;
+
+  // Admins can add feedback too (the server treats every submission alike);
+  // their own shows up in the list once the count bumps and it refetches.
+  return (
+    <div className="flex flex-col gap-6">
+      <FeedbackForm isAdmin onSubmit={onSubmit} />
+      <div className="rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
+        <p className="mb-4 text-sm font-medium text-neutral-500 dark:text-neutral-400">
+          {feedback.submissionCount} submission{feedback.submissionCount === 1 ? "" : "s"} — fully anonymous
+        </p>
+        <AdminFeedbackList submissionCount={feedback.submissionCount} onFetch={onFetchItems} />
+      </div>
     </div>
   );
 }

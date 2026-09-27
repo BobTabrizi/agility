@@ -1,6 +1,6 @@
 # Agility
 
-A room-based app for team activities: planning poker, an anonymous feedback box, an animated
+A room-based app for team activities: planning poker, an Anonymous Box for feedback, an animated
 Plinko board, a team randomizer, polls, and a spinning wheel.
 
 Anyone can create a room and share its link with their team. The creator becomes the room's
@@ -78,7 +78,7 @@ touches AWS: the DynamoDB tests run against a real (pay-per-request) table, so t
   invite link. The creator can't be kicked, and you can't kick yourself. Kicking someone who's
   "Away" is a way to tidy up the roster.
 - **Activities**: an admin picks which activity is active for the whole room (Planning Poker,
-  Feedback Box, Plinko, Team Randomizer, Poll, or Wheel) from the dropdown on the activity name, next to the
+  Poll, Wheel, Plinko, Team Randomizer, or Anonymous Box) from the dropdown on the activity name, next to the
   room name; everyone in the room sees the same activity. Participants can open the dropdown to
   see the options, but they're disabled — only admins can switch.
   - **Planning Poker** — an admin sets the round's topic (up to 60 characters, with a live
@@ -89,10 +89,11 @@ touches AWS: the DynamoDB tests run against a real (pay-per-request) table, so t
     average), reachable from the "View past rounds" link under the cards and loaded only when you
     open it — anonymous rounds stay anonymous in history even if the toggle is switched off later.
     Admins change the deck from the "⋮" at the top of the card picker.
-  - **Feedback Box** — participants submit free-text feedback (up to 2,000 characters each, with a
-    counter as you type) with no name attached, and there's no limit on how many; only admins can
-    see submitted messages (others just see a running submission count), and the list loads when
-    an admin opens the Feedback Box.
+  - **Anonymous Box** — everyone, admins included, can submit free-text feedback (up to 2,000
+    characters each, with a counter as you type) with no name attached, and there's no limit on how
+    many; only admins can see submitted messages (others just see a running submission count), and
+    the list loads when an admin opens the Anonymous Box. Admins get the submission form above the
+    list.
   - **Plinko** — the showpiece picker, for special occasions. An admin enters up to 12 options —
     more would make the bins too narrow to label — and drops the ball: it bounces peg to peg down a staggered board, each
     peg flashing as it's hit, and settles into a bin, which lights up with confetti. It's "movie

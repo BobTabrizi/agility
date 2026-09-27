@@ -145,7 +145,7 @@ port 3000 keeps answering — check which process owns the port before assuming 
   - Poker history, poll history and feedback text are never pushed — only their counts, which ride
     along in the room. They're fetched on demand with a request/ack (`poker:getHistory` /
     `poll:getHistory` / `feedback:getItems`, `fetchPokerHistory` / `fetchPollHistory` /
-    `fetchFeedbackItems` in `useRoomActions`): the history dialogs fetch when they open, the admin's Feedback Box when it's shown, and each refetches when its count (or
+    `fetchFeedbackItems` in `useRoomActions`): the history dialogs fetch when they open, the admin's Anonymous Box when it's shown, and each refetches when its count (or
     `latestRevealedAt`) changes while open — so only people actually looking download the lists.
     Anything else that's large and only occasionally viewed should follow the same pattern.
 
@@ -187,7 +187,7 @@ port 3000 keeps answering — check which process owns the port before assuming 
     the full-name tooltip is set on hover, since only the rendered width says whether CSS
     `truncate` clipped it further.
 
-- **Two different kinds of "hidden" data**: some data is withheld server-side — Feedback Box text
+- **Two different kinds of "hidden" data**: some data is withheld server-side — Anonymous Box text
   is never sent to non-admins at all (`feedback:getItems` checks `isRoomAdmin`), and polls are
   shaped per viewer in `toPublicPoll()` (`socketServer.ts`, called from `toPublicState()` for each
   socket): the stored votes never leave the server; a viewer gets counts only once they may see

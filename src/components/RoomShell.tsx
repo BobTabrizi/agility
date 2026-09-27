@@ -3,7 +3,7 @@
 import { RoomHeader } from "@/components/RoomHeader";
 import { PlanningPoker } from "@/components/activities/PlanningPoker";
 import { PokerOptionsMenu } from "@/components/activities/PokerOptionsMenu";
-import { FeedbackBox } from "@/components/activities/FeedbackBox";
+import { AnonymousBox } from "@/components/activities/AnonymousBox";
 import { Plinko } from "@/components/activities/Plinko";
 import { Poll } from "@/components/activities/Poll";
 import { Wheel } from "@/components/activities/Wheel";
@@ -60,7 +60,7 @@ export function RoomShell({
         )}
 
         {state.activeActivity === "feedback" && (
-          <FeedbackBox
+          <AnonymousBox
             feedback={state.feedback}
             isAdmin={isAdmin}
             onSubmit={actions.submitFeedback}

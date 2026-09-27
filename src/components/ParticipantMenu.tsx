@@ -106,7 +106,7 @@ export function ParticipantMenu({
               type="button"
               role="menuitem"
               onClick={() => choose(onAppointAdmin)}
-              title="They'll be able to run activities and read Feedback Box submissions"
+              title="They'll be able to run activities and read Anonymous Box submissions"
               className={itemClass}
             >
               Make admin

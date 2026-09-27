@@ -1,12 +1,13 @@
 export type ActivityType = "poker" | "feedback" | "plinko" | "teams" | "poll" | "wheel";
 
+// In the order the activity dropdown lists them.
 export const ACTIVITIES: { id: ActivityType; label: string }[] = [
   { id: "poker", label: "Planning Poker" },
-  { id: "feedback", label: "Feedback Box" },
-  { id: "plinko", label: "Plinko" },
-  { id: "teams", label: "Team Randomizer" },
   { id: "poll", label: "Poll" },
   { id: "wheel", label: "Wheel" },
+  { id: "plinko", label: "Plinko" },
+  { id: "teams", label: "Team Randomizer" },
+  { id: "feedback", label: "Anonymous Box" },
 ];
 
 // Past this many, bins get too narrow to label (especially on a phone).

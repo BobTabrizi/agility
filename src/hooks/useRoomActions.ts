@@ -53,7 +53,7 @@ export function useRoomActions() {
         if (!res.ok) throw new Error(res.error);
         return res.entries;
       },
-      // Same idea for the admin's Feedback Box: submissions are fetched, not pushed.
+      // Same idea for the admin's Anonymous Box: submissions are fetched, not pushed.
       fetchFeedbackItems: async (): Promise<FeedbackItem[]> => {
         const res: FeedbackItemsResponse = await socket.timeout(10_000).emitWithAck("feedback:getItems");
         if (!res.ok) throw new Error(res.error);
