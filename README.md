@@ -35,6 +35,9 @@ participants stay in sync in real time over a Socket.IO connection.
 
 ## Running locally
 
+Requires **Node 24** (LTS; pinned in `.nvmrc` and `package.json` `engines`, and used by the
+`Dockerfile`).
+
 ```bash
 npm install
 npm run dev
@@ -187,8 +190,6 @@ changes:
   rejections instead of exiting), but the action just doesn't happen and nobody is told — e.g. a
   join that hits one never gets its reply, leaving that person on "Connecting…". Worth a catch-all
   around handlers (log it, send the user a `room:error`, reply to any pending ack) before deploying.
-- **Node version.** The AWS SDK warns that releases after early January 2027 need Node 22+ (this
-  project currently runs on Node 20).
 - **Scope the AWS access key down before deploying.** The IAM user behind the key in `.env.local`
   has a scoped inline policy for the two `agility-rooms-v2` tables (the actions listed under
   "DynamoDB table setup" above), but also still has broader DynamoDB access from another policy

@@ -1,5 +1,4 @@
 import { createServer } from "http";
-import { parse } from "url";
 import next from "next";
 
 const dev = process.env.NODE_ENV !== "production";
@@ -20,10 +19,9 @@ app.prepare().then(async () => {
   // transitively) must come after this line.
   const { initSocketServer } = await import("./src/server/socketServer");
 
-  const httpServer = createServer((req, res) => {
-    const parsedUrl = parse(req.url || "", true);
-    handle(req, res, parsedUrl);
-  });
+  // Next parses the URL itself (passing a url.parse() result is the old,
+  // deprecated pattern — Node warns about url.parse()).
+  const httpServer = createServer((req, res) => handle(req, res));
 
   initSocketServer(httpServer);
 

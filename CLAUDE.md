@@ -6,6 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
+Node 24 (`.nvmrc`, `engines` in `package.json`, `node:24-alpine` in the `Dockerfile`).
+npm 11 warns that `esbuild` and `unrs-resolver` have install scripts "not yet covered by
+allowScripts" — they're skipped, and that's fine: both only fetch/verify a platform binary that npm
+already installs as an optional dependency (tests, lint and `next build` all pass without them).
+
 ```bash
 npm install       # install deps
 npm run dev        # runs server.ts via `tsx watch` — NOT `next dev`; this is what wires up Socket.IO
