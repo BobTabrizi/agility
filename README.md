@@ -81,7 +81,8 @@ touches AWS: the DynamoDB tests run against a real (pay-per-request) table, so t
   Feedback Box, Plinko, Team Randomizer, Poll, or Wheel) from the dropdown on the activity name, next to the
   room name; everyone in the room sees the same activity. Participants can open the dropdown to
   see the options, but they're disabled — only admins can switch.
-  - **Planning Poker** — deck is admin-customizable (numbers, sizes, or short text options),
+  - **Planning Poker** — an admin sets the round's topic (up to 60 characters, with a live
+    count), and the deck is admin-customizable (numbers, sizes, or short text options);
     votes are hidden until an admin reveals them, then shows each vote plus the average of
     numeric votes. An anonymous-voting toggle hides who voted what (names stay visible, values
     don't) and resets the round when flipped. Past rounds are kept as poker history (topic, votes,
@@ -102,6 +103,9 @@ touches AWS: the DynamoDB tests run against a real (pay-per-request) table, so t
     Late joiners see where it landed; "Remove <winner>" and reduced-motion work as for the Wheel.
   - **Team Randomizer** — an admin enters a list of names and a desired team count; "Generate teams"
     shuffles the names server-side and splits them round-robin into that many teams.
+    Its names box, like the Wheel's and Plinko's options, has two shortcuts: "Use current room
+    members" fills it with everyone connected, and "Clear" empties it. Both only change the box —
+    nothing reaches the room until the admin saves (or generates).
   - **Wheel** — an admin enters up to 30 options (or pulls in the room's members) and spins a
     colorful wheel: it whips around several times and coasts to a stop, the pointer flicking as
     slices pass, then the winner is highlighted with a burst of confetti. The server decides the
@@ -191,6 +195,5 @@ changes:
   key leaked. To finish: remove the broad policy in IAM → Users → Permissions, then run
   `npm run test:dynamo` once; if it passes, the inline policy covers everything the app needs.
 - **Mobile polish left over.** The layout works down to 320px wide, but on a phone the room name
-  is cut short next to the activity name, the poker topic box's hint text is clipped, and the
-  roster's "⋮" buttons are 24px (below the ~44px usually recommended for touch). Left for when the
-  room layout settles.
+  is cut short next to the activity name, and the roster's "⋮" buttons are 24px (below the
+  ~44px usually recommended for touch). Left for when the room layout settles.

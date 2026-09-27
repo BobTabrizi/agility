@@ -82,7 +82,7 @@ export function PokerDeckModal({
           <button
             type="submit"
             disabled={!deckIsUnsaved || parsedDeckDraft.length === 0}
-            className="rounded-lg border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+            className="rounded-lg border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-700 enabled:hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-200 dark:enabled:hover:bg-neutral-800"
           >
             Save deck
           </button>

@@ -30,6 +30,7 @@ import {
   type PlinkoSpeed,
   MAX_WHEEL_OPTION_LENGTH,
   MAX_WHEEL_OPTIONS,
+  MAX_POKER_TOPIC_LENGTH,
   type ActivityType,
   type FeedbackItem,
   type FeedbackItemsResponse,
@@ -55,7 +56,6 @@ interface SocketData {
 
 const MAX_NAME_LENGTH = 40;
 const MAX_CLIENT_ID_LENGTH = 100;
-const MAX_TOPIC_LENGTH = 200;
 const MAX_POKER_DECK_SIZE = 30;
 const MAX_TEAM_NAMES = 200;
 
@@ -392,7 +392,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
     );
 
     socket.on("poker:setTopic", (payload: { topic?: string }) => {
-      const topic = (payload?.topic || "").slice(0, MAX_TOPIC_LENGTH);
+      const topic = (payload?.topic || "").slice(0, MAX_POKER_TOPIC_LENGTH);
       return changeRoom(socket, { adminOnly: true }, (room) => {
         room.poker.topic = topic;
       });

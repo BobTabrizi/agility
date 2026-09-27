@@ -140,7 +140,7 @@ export function FeedbackBox({
             <button
               type="submit"
               disabled={!text.trim()}
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-40"
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400 disabled:shadow-none dark:disabled:bg-neutral-800 dark:disabled:text-neutral-500"
             >
               Send
             </button>

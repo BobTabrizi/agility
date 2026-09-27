@@ -21,7 +21,7 @@ export function UseRoomMembersButton({
       type="button"
       onClick={() => onUse(names)}
       disabled={names.length === 0}
-      className="self-start rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+      className="self-start rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-medium text-neutral-700 enabled:hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-200 dark:enabled:hover:bg-neutral-800"
       title={names.length === 0 ? "No one else is connected to the room yet" : undefined}
     >
       Use current room members ({names.length})

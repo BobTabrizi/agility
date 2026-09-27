@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Confetti } from "@/components/activities/Confetti";
+import { ClearDraftButton } from "@/components/ClearDraftButton";
 import { UseRoomMembersButton } from "@/components/UseRoomMembersButton";
 import { CHART_PALETTE } from "@/lib/chartPalette";
 import { PLINKO_STEP, plinkoPositions, plinkoRowCount } from "@/lib/plinkoPath";
@@ -354,7 +355,7 @@ export function Plinko({
               type="button"
               onClick={onDrop}
               disabled={count < 2 || dropping}
-              className="rounded-full bg-indigo-600 px-8 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 disabled:opacity-40"
+              className="rounded-full bg-indigo-600 px-8 py-2.5 text-sm font-semibold text-white shadow-sm enabled:hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400 disabled:shadow-none dark:disabled:bg-neutral-800 dark:disabled:text-neutral-500"
             >
               {landed ? "Drop again" : "Drop the ball"}
             </button>
@@ -422,11 +423,14 @@ export function Plinko({
               : `Every option has an equal chance. Long ones are shortened on the board (up to ${MAX_PLINKO_OPTION_LENGTH} characters are kept).`}
           </p>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <UseRoomMembersButton names={activeMemberNames} onUse={(names) => setOptionsDraft(names.join("\n"))} />
+            <div className="flex flex-wrap gap-2">
+              <UseRoomMembersButton names={activeMemberNames} onUse={(names) => setOptionsDraft(names.join("\n"))} />
+              <ClearDraftButton disabled={!optionsDraft} onClear={() => setOptionsDraft("")} />
+            </div>
             <button
               type="submit"
               disabled={!draftIsUnsaved}
-              className="rounded-lg border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+              className="rounded-lg border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-700 enabled:hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-200 dark:enabled:hover:bg-neutral-800"
             >
               Save options
             </button>

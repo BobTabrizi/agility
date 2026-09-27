@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { ClearDraftButton } from "@/components/ClearDraftButton";
 import { UseRoomMembersButton } from "@/components/UseRoomMembersButton";
 import { MAX_TEAM_COUNT, MAX_TEAM_NAME_LENGTH } from "@/lib/types";
 import type { TeamsState } from "@/lib/types";
@@ -118,7 +119,10 @@ export function Teams({
               className="resize-none rounded-lg border border-neutral-300 px-3 py-2 text-base sm:text-sm font-normal outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-neutral-700 dark:bg-neutral-800"
             />
           </label>
-          <UseRoomMembersButton names={activeMemberNames} onUse={(names) => setNamesDraft(names.join("\n"))} />
+          <div className="flex flex-wrap gap-2">
+            <UseRoomMembersButton names={activeMemberNames} onUse={(names) => setNamesDraft(names.join("\n"))} />
+            <ClearDraftButton disabled={!namesDraft} onClear={() => setNamesDraft("")} />
+          </div>
           <label className="flex items-center gap-2 text-sm font-medium text-neutral-700 dark:text-neutral-300">
             Number of teams
             <input
@@ -133,7 +137,7 @@ export function Teams({
           <button
             type="submit"
             disabled={parsedNames.length === 0}
-            className="self-end rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-40"
+            className="self-end rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400 disabled:shadow-none dark:disabled:bg-neutral-800 dark:disabled:text-neutral-500"
           >
             Generate teams
           </button>

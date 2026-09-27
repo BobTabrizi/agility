@@ -138,14 +138,16 @@ export function RoomHeader({
                     key={p.id}
                     // The gray avatar and dimmed row are the visual cue; this
                     // spells it out on hover (the name's own tooltip wins over it).
+                    // The dimming goes on the row's contents, not the row: opacity
+                    // applies to everything inside, including the ⋮ menu's dropdown.
                     title={p.connected ? undefined : "Away — not connected right now"}
                     className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm ${
-                      p.connected ? "" : "opacity-50"
-                    } ${p.id === selfId ? "bg-indigo-50 dark:bg-indigo-950/50" : ""}`}
+                      p.id === selfId ? "bg-indigo-50 dark:bg-indigo-950/50" : ""
+                    }`}
                   >
                     <div
                       className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white ${
-                        p.connected ? "bg-indigo-500" : "bg-neutral-400 dark:bg-neutral-600"
+                        p.connected ? "bg-indigo-500" : "bg-neutral-400 opacity-50 dark:bg-neutral-600"
                       }`}
                     >
                       {p.name.slice(0, 2).toUpperCase()}
@@ -155,7 +157,7 @@ export function RoomHeader({
                         show the full-name tooltip is decided on hover, since only
                         the rendered width says whether CSS clipped it too. */}
                     <span
-                      className="min-w-0 truncate text-neutral-800 dark:text-neutral-100"
+                      className={`min-w-0 truncate text-neutral-800 dark:text-neutral-100 ${p.connected ? "" : "opacity-50"}`}
                       onMouseEnter={(e) => {
                         const el = e.currentTarget;
                         const shortened =
@@ -178,7 +180,7 @@ export function RoomHeader({
                         onKick={() => setKickTarget(p)}
                       />
                     )}
-                    <div className="ml-auto flex shrink-0 items-center gap-1.5 pl-1">
+                    <div className={`ml-auto flex shrink-0 items-center gap-1.5 pl-1 ${p.connected ? "" : "opacity-50"}`}>
                       {p.isAdmin && (
                         <span
                           className="text-xs font-medium text-indigo-600 dark:text-indigo-400"

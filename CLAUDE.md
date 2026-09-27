@@ -227,12 +227,19 @@ port 3000 keeps answering — check which process owns the port before assuming 
   `HistoryLink` under its card ("View past rounds" / "View past polls"), shown once there's history
   and deliberately without a count (see the component). Per-activity admin settings go in a "⋮" in
   the relevant card's corner (the deck menu, `PokerOptionsMenu`, sits on the card picker).
+  An admin's list box (Wheel/Plinko options, Team Randomizer names) gets `UseRoomMembersButton`
+  and `ClearDraftButton` beneath it; both edit only the draft, never the room.
 
 - **Mobile** (checked down to 320px wide): form fields use `text-base sm:text-sm` — iOS Safari zooms
   the page when focusing a field under 16px. Dropdowns must stay inside the viewport: the roster's
   `ParticipantMenu` clamps its fixed `left` to the screen, and `ActivityMenu` flips to right-aligned
   when left-aligned would run off the edge. Don't hide important text behind hover-only `title`
   tooltips (there's no hover on a phone) — long topics wrap instead of truncating.
+- **Disabled primary (indigo) buttons** turn plain gray (`disabled:bg-neutral-100 disabled:text-neutral-400`,
+  dark variants, `cursor-not-allowed`) and only highlight via `enabled:hover:` — a faded indigo
+  still read as clickable. Copy the classes from an existing one (e.g. Reveal in `PlanningPoker.tsx`).
+  Outlined secondary buttons that can be disabled (Save options, Update) keep `disabled:opacity-40`
+  but likewise use `enabled:hover:` / `dark:enabled:hover:` and `disabled:cursor-not-allowed`.
 
 - **Synchronized animations** (Wheel, Plinko): the server decides the outcome *and* everything the
   animation needs (the wheel's `spin` includes `turns` and `offset`; Plinko's `drop` includes the

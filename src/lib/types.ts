@@ -100,6 +100,13 @@ export interface FeedbackItem {
  */
 export const MAX_FEEDBACK_LENGTH = 2000;
 
+/**
+ * Longest planning poker topic, in characters — enforced by the server
+ * (`poker:setTopic`) as well as the topic box, which shows the count. Kept
+ * short so a topic reads as a one-line label.
+ */
+export const MAX_POKER_TOPIC_LENGTH = 60;
+
 /** The newest this many rounds are what the history dialog shows. */
 export const MAX_POKER_HISTORY = 50;
 
