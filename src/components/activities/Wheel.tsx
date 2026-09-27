@@ -1,27 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Confetti } from "@/components/activities/Confetti";
 import { UseRoomMembersButton } from "@/components/UseRoomMembersButton";
+import { ringColor } from "@/lib/chartPalette";
 import {
   MAX_WHEEL_OPTION_LENGTH,
   MAX_WHEEL_OPTIONS,
   WHEEL_SPIN_DURATION_MS,
   type WheelState,
 } from "@/lib/types";
-
-// The categorical chart palette from globals.css, each with a text color
-// chosen for contrast on it — so every slice's label stays readable.
-const PALETTE = Array.from({ length: 8 }, (_, i) => ({
-  fill: `var(--viz-series-${i + 1})`,
-  ink: `var(--viz-series-${i + 1}-ink)`,
-}));
-
-function sliceColor(index: number, count: number) {
-  // Cycling the palette would give the last slice the first slice's color when
-  // they end up adjacent (count ≡ 1 mod 8); shift it to keep neighbors distinct.
-  const i = index === count - 1 && count > 1 && (count - 1) % PALETTE.length === 0 ? 4 : index;
-  return PALETTE[i % PALETTE.length];
-}
 
 /** A point on the wheel: angle in degrees clockwise from 12 o'clock, radius 0–1. */
 function point(angle: number, radius: number) {
@@ -52,17 +40,6 @@ const easeOutQuart = (t: number) => 1 - (1 - t) ** 4;
 
 function truncate(label: string, max: number) {
   return label.length > max ? `${label.slice(0, max - 1).trimEnd()}…` : label;
-}
-
-/** Small seeded PRNG, so confetti for a given spin is the same on every render. */
-function seededRandom(seed: string) {
-  let h = 2166136261;
-  for (const c of seed) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
-  return () => {
-    h = Math.imul(h ^ (h >>> 15), 2246822507);
-    h = Math.imul(h ^ (h >>> 13), 3266489909);
-    return ((h ^= h >>> 16) >>> 0) / 4294967296;
-  };
 }
 
 export function Wheel({
@@ -169,25 +146,6 @@ export function Wheel({
   const labelMax = count <= 6 ? 18 : count <= 12 ? 14 : 10;
   const fontSize = count <= 6 ? 0.11 : count <= 12 ? 0.085 : 0.065;
 
-  const confetti = useMemo(() => {
-    if (!winner || !spin) return [];
-    const rand = seededRandom(spin.id);
-    return Array.from({ length: 28 }, (_, i) => {
-      const angle = rand() * Math.PI * 2;
-      const distance = 90 + rand() * 90;
-      return {
-        key: i,
-        color: PALETTE[i % PALETTE.length].fill,
-        style: {
-          "--dx": `${Math.cos(angle) * distance}px`,
-          "--dy": `${Math.sin(angle) * distance - 40}px`,
-          "--spin": `${rand() * 720 - 360}deg`,
-          animationDelay: `${rand() * 120}ms`,
-        } as CSSProperties,
-      };
-    });
-  }, [winner, spin]);
-
   function handleSaveOptions(e: FormEvent) {
     e.preventDefault();
     onSetOptions(parsedDraft);
@@ -222,7 +180,7 @@ export function Wheel({
                 <circle r="1" className="fill-neutral-100 dark:fill-neutral-800" />
               ) : (
                 options.map((option, i) => {
-                  const color = sliceColor(i, count);
+                  const color = ringColor(i, count);
                   const mid = (i + 0.5) * (360 / count);
                   const dimmed = winner !== null && i !== spin?.winnerIndex;
                   return (
@@ -249,17 +207,7 @@ export function Wheel({
             <circle r="0.12" className="fill-white stroke-neutral-200 dark:fill-neutral-900 dark:stroke-neutral-700" strokeWidth={0.02} />
           </svg>
 
-          {confetti.length > 0 && (
-            <div aria-hidden className="pointer-events-none absolute left-1/2 top-1/2">
-              {confetti.map((piece) => (
-                <span
-                  key={`${spin?.id}-${piece.key}`}
-                  className="wheel-motion absolute h-2.5 w-1.5 rounded-sm opacity-0"
-                  style={{ ...piece.style, background: piece.color, animation: "wheel-confetti 1.1s ease-out forwards" }}
-                />
-              ))}
-            </div>
-          )}
+          {winner && spin && <Confetti key={spin.id} seed={spin.id} />}
         </div>
 
         <div className="flex min-h-[3.5rem] items-center justify-center" aria-live="polite">

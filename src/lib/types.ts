@@ -9,6 +9,14 @@ export const ACTIVITIES: { id: ActivityType; label: string }[] = [
   { id: "wheel", label: "Wheel" },
 ];
 
+// Past this many, bins get too narrow to label (especially on a phone).
+export const MAX_PLINKO_OPTIONS = 12;
+export const MAX_PLINKO_OPTION_LENGTH = 60;
+
+/** Drop speeds an admin can pick, as a multiplier on the animation's durations. */
+export const PLINKO_SPEEDS = { slow: 1.6, normal: 1, fast: 0.6 } as const;
+export type PlinkoSpeed = keyof typeof PLINKO_SPEEDS;
+
 export const MAX_WHEEL_OPTIONS = 30;
 export const MAX_WHEEL_OPTION_LENGTH = 60;
 /** How long a spin's animation lasts, in every client. */
@@ -107,13 +115,6 @@ export interface FeedbackState {
   submissionCount: number;
 }
 
-export interface PlinkoState {
-  options: string[];
-  isRunning: boolean;
-  winner: string | null;
-  seed: number | null;
-}
-
 export interface TeamsState {
   names: string[];
   teamCount: number;
@@ -201,6 +202,25 @@ export interface WheelState {
     turns: number; // whole extra rotations before stopping (drama)
     offset: number; // where within the winning slice it stops, 0–1 (so it isn't always dead center)
   } | null; // null until spun, and again whenever the options change
+}
+
+/**
+ * Plinko, "movie physics": the server picks the winner uniformly (fair to
+ * every option), then a random bounce path into its slot (src/lib/
+ * plinkoPath.ts), so every client animates the identical drop.
+ */
+export interface PlinkoState {
+  options: string[];
+  // A room setting (not per person) so everyone watches the drop at the same pace.
+  speed: PlinkoSpeed;
+  drop: {
+    id: string; // new per drop: what tells clients to animate
+    winnerIndex: number;
+    path: number[]; // one -1/+1 per peg row
+    // The speed at the moment of the drop — changing the setting afterwards
+    // doesn't alter a drop already in flight, so clients can't fall out of step.
+    speed: PlinkoSpeed;
+  } | null; // null until dropped, and again whenever the options change
 }
 
 export interface RoomState {

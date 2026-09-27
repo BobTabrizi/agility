@@ -11,7 +11,7 @@ import {
   type BatchWriteCommandOutput,
 } from "@aws-sdk/lib-dynamodb";
 import type { FeedbackItem, PokerHistoryEntry, PollHistoryEntry } from "@/lib/types";
-import { emptyPoll, generateRoomCode, newRoom } from "@/server/newRoom";
+import { generateRoomCode, newRoom } from "@/server/newRoom";
 import type { HistoryAppend, RoomStore, StoredRoom } from "@/server/roomStore";
 import { RoomConflictError } from "@/server/roomUpdates";
 
@@ -48,18 +48,13 @@ const DEFAULT_TTL_SECONDS = 60 * 24 * 60 * 60;
 type Keyed<T> = T & { pk: string; sk: string; expiresAt: number };
 
 /**
- * A room item as a StoredRoom. Fills in fields added after the room was
- * written (`poll`, `wheel`, …), so rooms created before a feature existed keep
- * working — the next whole-room save then writes the field for real.
+ * A room item as a StoredRoom. This is the place to fill in a field added
+ * after rooms were already saved (the next whole-room save then writes it for
+ * real) — currently there are none: the tables were wiped when Plinko was
+ * replaced, so every stored room has the current shape.
  */
 function roomFromItem(item: Record<string, unknown>): StoredRoom {
-  const room = withoutKeys<StoredRoom>(item);
-  return {
-    ...room,
-    poll: { ...emptyPoll(), ...room.poll },
-    pollHistorySummary: room.pollHistorySummary ?? { count: 0, latestRecordedAt: null },
-    wheel: room.wheel ?? { options: [], spin: null },
-  };
+  return withoutKeys<StoredRoom>(item);
 }
 
 function withoutKeys<T>(item: Record<string, unknown>): T {

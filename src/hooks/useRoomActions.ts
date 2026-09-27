@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { getSocket } from "@/lib/socketClient";
 import type {
   ActivityType,
+  PlinkoSpeed,
   FeedbackItem,
   FeedbackItemsResponse,
   PokerHistoryEntry,
@@ -23,11 +24,13 @@ export function useRoomActions() {
       setDeck: (deck: string[]) => socket.emit("poker:setDeck", { deck }),
       setAnonymous: (anonymous: boolean) => socket.emit("poker:setAnonymous", { anonymous }),
       submitFeedback: (text: string) => socket.emit("feedback:submit", { text }),
-      setPlinkoOptions: (options: string[]) => socket.emit("plinko:setOptions", { options }),
-      spin: () => socket.emit("plinko:spin"),
       setWheelOptions: (options: string[]) => socket.emit("wheel:setOptions", { options }),
       spinWheel: () => socket.emit("wheel:spin"),
       removeWheelWinner: (spinId: string) => socket.emit("wheel:removeWinner", { spinId }),
+      setPlinkoOptions: (options: string[]) => socket.emit("plinko:setOptions", { options }),
+      dropPlinko: () => socket.emit("plinko:drop"),
+      setPlinkoSpeed: (speed: PlinkoSpeed) => socket.emit("plinko:setSpeed", { speed }),
+      removePlinkoWinner: (dropId: string) => socket.emit("plinko:removeWinner", { dropId }),
       generateTeams: (names: string[], count: number) =>
         socket.emit("teams:generate", { names, count }),
       setActivity: (activity: ActivityType) => socket.emit("activity:set", { activity }),

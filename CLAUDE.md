@@ -96,7 +96,8 @@ port 3000 keeps answering — check which process owns the port before assuming 
   - A new room's starting state comes from `newRoom()` (`src/server/newRoom.ts`), shared by both
     stores — add a default for any new `StoredRoom` field there, not per store. Rooms already in
     DynamoDB won't have a newly added field: fill it in on read in `roomFromItem`
-    (`dynamoRoomStore.ts`), as it does for `poll`, and the next whole-room save persists it.
+    (`dynamoRoomStore.ts`) and the next whole-room save persists it — or, while there's no real
+    data yet, wipe the tables instead (as was done when Plinko was replaced).
 
 - **Concurrent writes — never `getRoom` + `saveRoom` by hand.** Two handlers editing the same room at
   once (two people voting) used to silently lose one change: each loaded the room, changed its own
@@ -214,7 +215,7 @@ port 3000 keeps answering — check which process owns the port before assuming 
   selected options in `Poll.tsx`) pair a draft
   `useState` with a `lastSeenX` `useState`, updated inline during render when the server value
   changes — not a `useEffect`. `useEffect` in this codebase is reserved for actual side effects (e.g.
-  Plinko's chained-`setTimeout` reveal animation), not for mirroring a prop/server value into local
+  the Wheel's and Plinko's `requestAnimationFrame` loops), not for mirroring a prop/server value into local
   state. `PokerDeckModal.tsx` deliberately skips this: it mounts fresh every time the modal opens, so
   a plain `useState(deck.join(", "))` is enough — no risk of the prop changing under an already-open
   draft the way there is for something that stays mounted. The poll editor (`PollEditor`) is the
@@ -227,9 +228,15 @@ port 3000 keeps answering — check which process owns the port before assuming 
   and deliberately without a count (see the component). Per-activity admin settings go in a "⋮" in
   the relevant card's corner (the deck menu, `PokerOptionsMenu`, sits on the card picker).
 
-- **Synchronized animations** (Plinko, Wheel): the server decides the outcome *and* everything the
-  animation needs (the wheel's `spin` includes `turns` and `offset`, not just the winner), so every
-  client plays the identical animation. A new spin/drop id is what triggers it; a result that
+- **Synchronized animations** (Wheel, Plinko): the server decides the outcome *and* everything the
+  animation needs (the wheel's `spin` includes `turns` and `offset`; Plinko's `drop` includes the
+  whole bounce `path`), so every client plays the identical animation. Plinko is "movie physics": the winner is picked uniformly first (fair to every option), then
+  `plinkoPath()` (`src/lib/plinkoPath.ts`, unit-tested) builds a random on-board path into it —
+  never simulate real physics for this, since clients would diverge and the outcome couldn't be
+  chosen fairly. The Wheel and Plinko share `Confetti.tsx` and `src/lib/chartPalette.ts`.
+  Any setting that changes how an animation plays is stamped onto the result itself (Plinko's
+  `drop.speed` copies the room's `speed` at drop time), so changing the setting mid-animation can't
+  make clients disagree about timing. A new spin/drop id is what triggers it; a result that
   already existed when the component mounted (join, refresh) is shown settled, never replayed. The
   wheel animates with a `requestAnimationFrame` loop that sets the transform directly (no React
   render per frame) — keyframes for its flourishes are in `globals.css` under `.wheel-motion`, which
@@ -237,6 +244,10 @@ port 3000 keeps answering — check which process owns the port before assuming 
   Actions that act on a result carry that result's id (`wheel:removeWinner` sends the `spinId` it
   was shown), so if someone produced a newer result in the meantime the server refuses instead of
   acting on the wrong one — follow that for any "do X to the winner" action.
+  Testing gotcha: browsers pause `requestAnimationFrame` for a window that isn't being painted
+  (e.g. the in-app browser pane when it's hidden or not drawing), so a spin/drop can appear frozen
+  after one frame — that's the environment, not the code. To watch one anyway, override
+  `window.requestAnimationFrame` with a `setTimeout`-based stand-in in that tab first.
 
 - **Scaling caveat**: a Socket.IO client must stay connected to the instance it joined a room on.
   `ROOM_STORE=dynamodb` solves the room-*data* half of running multiple instances (any instance can

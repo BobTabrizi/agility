@@ -74,7 +74,9 @@ export function RoomShell({
             isAdmin={isAdmin}
             activeMemberNames={activeMemberNames}
             onSetOptions={actions.setPlinkoOptions}
-            onSpin={actions.spin}
+            onDrop={actions.dropPlinko}
+            onRemoveWinner={actions.removePlinkoWinner}
+            onSetSpeed={actions.setPlinkoSpeed}
           />
         )}
 
@@ -109,6 +111,7 @@ export function RoomShell({
             onRemoveWinner={actions.removeWheelWinner}
           />
         )}
+
       </div>
     </div>
   );

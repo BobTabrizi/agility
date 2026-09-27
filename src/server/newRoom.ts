@@ -37,7 +37,7 @@ export function newRoom(code: string, name: string): StoredRoom {
     poker: { topic: "", votes: {}, revealed: false, deck: [...DEFAULT_POKER_DECK], anonymous: false },
     pokerHistorySummary: { count: 0, latestRevealedAt: null },
     feedback: { submissionCount: 0 },
-    plinko: { options: [], isRunning: false, winner: null, seed: null },
+    plinko: { options: [], speed: "normal", drop: null },
     teams: { names: [], teamCount: 2, teams: [] },
     poll: emptyPoll(),
     pollHistorySummary: { count: 0, latestRecordedAt: null },

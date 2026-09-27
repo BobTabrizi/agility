@@ -1,7 +1,7 @@
 # Agility
 
-A room-based app for team activities: planning poker, an anonymous feedback box, plinko, a team
-randomizer, polls, and a spinning wheel.
+A room-based app for team activities: planning poker, an anonymous feedback box, an animated
+Plinko board, a team randomizer, polls, and a spinning wheel.
 
 Anyone can create a room and share its link with their team. The creator becomes the room's
 first admin (tracked via a token stored in their browser, not an account) and can make others
@@ -92,8 +92,14 @@ touches AWS: the DynamoDB tests run against a real (pay-per-request) table, so t
     counter as you type) with no name attached, and there's no limit on how many; only admins can
     see submitted messages (others just see a running submission count), and the list loads when
     an admin opens the Feedback Box.
-  - **Plinko** — an admin enters a list of options, "Drop the ball" picks one at random server-side
-    and every client plays the same reveal animation.
+  - **Plinko** — the showpiece picker, for special occasions. An admin enters up to 12 options —
+    more would make the bins too narrow to label — and drops the ball: it bounces peg to peg down a staggered board, each
+    peg flashing as it's hit, and settles into a bin, which lights up with confetti. It's "movie
+    physics": the winner is picked uniformly at random first (every option has the same chance,
+    unlike a real board, where middle bins win far more often), then a believable bounce path into
+    that bin is generated, so everyone watches the identical drop. Admins pick a drop speed (Slow /
+    Normal / Fast — roughly 6, 4 and 2½ seconds), which applies to everyone from the next drop.
+    Late joiners see where it landed; "Remove <winner>" and reduced-motion work as for the Wheel.
   - **Team Randomizer** — an admin enters a list of names and a desired team count; "Generate teams"
     shuffles the names server-side and splits them round-robin into that many teams.
   - **Wheel** — an admin enters up to 30 options (or pulls in the room's members) and spins a

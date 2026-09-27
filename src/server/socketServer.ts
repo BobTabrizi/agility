@@ -3,6 +3,7 @@ import { Server as SocketIOServer, type Socket } from "socket.io";
 import { nanoid } from "nanoid";
 import { roomStore, type StoredRoom } from "@/server/roomStore";
 import { createVersionedThrottle } from "@/server/roomThrottle";
+import { plinkoPath } from "@/lib/plinkoPath";
 import {
   RoomBusyError,
   SKIP,
@@ -23,6 +24,10 @@ import {
   MAX_POKER_HISTORY,
   MAX_TEAM_COUNT,
   MAX_TEAM_NAME_LENGTH,
+  MAX_PLINKO_OPTION_LENGTH,
+  MAX_PLINKO_OPTIONS,
+  PLINKO_SPEEDS,
+  type PlinkoSpeed,
   MAX_WHEEL_OPTION_LENGTH,
   MAX_WHEEL_OPTIONS,
   type ActivityType,
@@ -51,8 +56,6 @@ interface SocketData {
 const MAX_NAME_LENGTH = 40;
 const MAX_CLIENT_ID_LENGTH = 100;
 const MAX_TOPIC_LENGTH = 200;
-const MAX_PLINKO_OPTIONS = 100;
-const MAX_PLINKO_OPTION_LENGTH = 200;
 const MAX_POKER_DECK_SIZE = 30;
 const MAX_TEAM_NAMES = 200;
 
@@ -446,27 +449,6 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
       ack({ ok: true, items: await roomStore.listFeedback(room.code) });
     });
 
-    socket.on("plinko:setOptions", (payload: { options?: string[] }) => {
-      const options = (payload?.options || [])
-        .map((o) => o.trim().slice(0, MAX_PLINKO_OPTION_LENGTH))
-        .filter(Boolean)
-        .slice(0, MAX_PLINKO_OPTIONS);
-      return changeRoom(socket, { adminOnly: true }, (room) => {
-        room.plinko.options = options;
-        room.plinko.winner = null;
-        room.plinko.isRunning = false;
-      });
-    });
-
-    socket.on("plinko:spin", () =>
-      changeRoom(socket, { adminOnly: true }, (room) => {
-        if (room.plinko.options.length < 2) return { error: "Add at least two options before spinning." };
-        room.plinko.winner = room.plinko.options[Math.floor(Math.random() * room.plinko.options.length)];
-        room.plinko.isRunning = true;
-        room.plinko.seed = Date.now();
-      })
-    );
-
     socket.on("wheel:setOptions", (payload: { options?: string[] }) => {
       const options = (payload?.options || [])
         .map((o) => (typeof o === "string" ? o.trim().slice(0, MAX_WHEEL_OPTION_LENGTH) : ""))
@@ -503,6 +485,56 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
           return { error: "The wheel was spun again — that result is no longer current." };
         }
         room.wheel = { options: options.filter((_, i) => i !== spin.winnerIndex), spin: null };
+      })
+    );
+
+    socket.on("plinko:setOptions", (payload: { options?: string[] }) => {
+      const options = (payload?.options || [])
+        .map((o) => (typeof o === "string" ? o.trim().slice(0, MAX_PLINKO_OPTION_LENGTH) : ""))
+        .filter(Boolean)
+        .slice(0, MAX_PLINKO_OPTIONS);
+      return changeRoom(socket, { adminOnly: true }, (room) => {
+        room.plinko = { ...room.plinko, options, drop: null };
+      });
+    });
+
+    socket.on("plinko:setSpeed", (payload: { speed?: PlinkoSpeed }) => {
+      const speed = payload?.speed;
+      if (!speed || !(speed in PLINKO_SPEEDS)) return;
+      return changeRoom(socket, { adminOnly: true }, (room) => {
+        if (room.plinko.speed === speed) return SKIP;
+        room.plinko.speed = speed;
+      });
+    });
+
+    // "Movie physics": the winner is chosen uniformly first — fair to every
+    // option, unlike a real board — then a believable bounce path into it.
+    socket.on("plinko:drop", () =>
+      changeRoom(socket, { adminOnly: true }, (room) => {
+        const count = room.plinko.options.length;
+        if (count < 2) return { error: "Add at least two options before dropping the ball." };
+        const winnerIndex = Math.floor(Math.random() * count);
+        room.plinko.drop = {
+          id: nanoid(8),
+          winnerIndex,
+          path: plinkoPath(count, winnerIndex),
+          speed: room.plinko.speed,
+        };
+      })
+    );
+
+    // Same guard as wheel:removeWinner: only the drop the client was shown.
+    socket.on("plinko:removeWinner", (payload: { dropId?: string }) =>
+      changeRoom(socket, { adminOnly: true }, (room) => {
+        const { drop, options } = room.plinko;
+        if (!drop || drop.id !== payload?.dropId) {
+          return { error: "The ball was dropped again — that result is no longer current." };
+        }
+        room.plinko = {
+          ...room.plinko,
+          options: options.filter((_, i) => i !== drop.winnerIndex),
+          drop: null,
+        };
       })
     );
 
