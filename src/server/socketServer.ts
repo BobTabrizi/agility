@@ -23,6 +23,8 @@ import {
   MAX_POKER_HISTORY,
   MAX_TEAM_COUNT,
   MAX_TEAM_NAME_LENGTH,
+  MAX_WHEEL_OPTION_LENGTH,
+  MAX_WHEEL_OPTIONS,
   type ActivityType,
   type FeedbackItem,
   type FeedbackItemsResponse,
@@ -164,6 +166,7 @@ function toPublicState(room: StoredRoom, viewer: SocketData): PublicRoomState {
     poker: room.poker,
     pokerHistorySummary: room.pokerHistorySummary,
     pollHistorySummary: room.pollHistorySummary,
+    wheel: room.wheel,
     plinko: room.plinko,
     teams: room.teams,
     feedback: room.feedback,
@@ -461,6 +464,45 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
         room.plinko.winner = room.plinko.options[Math.floor(Math.random() * room.plinko.options.length)];
         room.plinko.isRunning = true;
         room.plinko.seed = Date.now();
+      })
+    );
+
+    socket.on("wheel:setOptions", (payload: { options?: string[] }) => {
+      const options = (payload?.options || [])
+        .map((o) => (typeof o === "string" ? o.trim().slice(0, MAX_WHEEL_OPTION_LENGTH) : ""))
+        .filter(Boolean)
+        .slice(0, MAX_WHEEL_OPTIONS);
+      return changeRoom(socket, { adminOnly: true }, (room) => {
+        room.wheel = { options, spin: null };
+      });
+    });
+
+    // The whole spin is decided here, not just the winner — how many turns and
+    // where in the winning slice it stops — so every client plays the identical
+    // animation and lands on the same slice.
+    socket.on("wheel:spin", () =>
+      changeRoom(socket, { adminOnly: true }, (room) => {
+        const count = room.wheel.options.length;
+        if (count < 2) return { error: "Add at least two options before spinning." };
+        room.wheel.spin = {
+          id: nanoid(8),
+          winnerIndex: Math.floor(Math.random() * count),
+          turns: 5 + Math.floor(Math.random() * 3),
+          offset: 0.15 + Math.random() * 0.7,
+        };
+      })
+    );
+
+    // "Remove the winner, spin again" — e.g. picking standup speakers one by one.
+    // The client says which spin's winner it means, so if someone spun again in
+    // the meantime this refuses rather than removing a different option.
+    socket.on("wheel:removeWinner", (payload: { spinId?: string }) =>
+      changeRoom(socket, { adminOnly: true }, (room) => {
+        const { spin, options } = room.wheel;
+        if (!spin || spin.id !== payload?.spinId) {
+          return { error: "The wheel was spun again — that result is no longer current." };
+        }
+        room.wheel = { options: options.filter((_, i) => i !== spin.winnerIndex), spin: null };
       })
     );
 

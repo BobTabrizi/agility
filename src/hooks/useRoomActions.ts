@@ -25,6 +25,9 @@ export function useRoomActions() {
       submitFeedback: (text: string) => socket.emit("feedback:submit", { text }),
       setPlinkoOptions: (options: string[]) => socket.emit("plinko:setOptions", { options }),
       spin: () => socket.emit("plinko:spin"),
+      setWheelOptions: (options: string[]) => socket.emit("wheel:setOptions", { options }),
+      spinWheel: () => socket.emit("wheel:spin"),
+      removeWheelWinner: (spinId: string) => socket.emit("wheel:removeWinner", { spinId }),
       generateTeams: (names: string[], count: number) =>
         socket.emit("teams:generate", { names, count }),
       setActivity: (activity: ActivityType) => socket.emit("activity:set", { activity }),

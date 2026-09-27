@@ -49,7 +49,7 @@ type Keyed<T> = T & { pk: string; sk: string; expiresAt: number };
 
 /**
  * A room item as a StoredRoom. Fills in fields added after the room was
- * written (currently `poll`), so rooms created before a feature existed keep
+ * written (`poll`, `wheel`, …), so rooms created before a feature existed keep
  * working — the next whole-room save then writes the field for real.
  */
 function roomFromItem(item: Record<string, unknown>): StoredRoom {
@@ -58,6 +58,7 @@ function roomFromItem(item: Record<string, unknown>): StoredRoom {
     ...room,
     poll: { ...emptyPoll(), ...room.poll },
     pollHistorySummary: room.pollHistorySummary ?? { count: 0, latestRecordedAt: null },
+    wheel: room.wheel ?? { options: [], spin: null },
   };
 }
 

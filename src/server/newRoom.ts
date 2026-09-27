@@ -41,5 +41,6 @@ export function newRoom(code: string, name: string): StoredRoom {
     teams: { names: [], teamCount: 2, teams: [] },
     poll: emptyPoll(),
     pollHistorySummary: { count: 0, latestRecordedAt: null },
+    wheel: { options: [], spin: null },
   };
 }

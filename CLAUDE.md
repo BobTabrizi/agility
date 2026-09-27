@@ -227,6 +227,17 @@ port 3000 keeps answering — check which process owns the port before assuming 
   and deliberately without a count (see the component). Per-activity admin settings go in a "⋮" in
   the relevant card's corner (the deck menu, `PokerOptionsMenu`, sits on the card picker).
 
+- **Synchronized animations** (Plinko, Wheel): the server decides the outcome *and* everything the
+  animation needs (the wheel's `spin` includes `turns` and `offset`, not just the winner), so every
+  client plays the identical animation. A new spin/drop id is what triggers it; a result that
+  already existed when the component mounted (join, refresh) is shown settled, never replayed. The
+  wheel animates with a `requestAnimationFrame` loop that sets the transform directly (no React
+  render per frame) — keyframes for its flourishes are in `globals.css` under `.wheel-motion`, which
+  `prefers-reduced-motion` switches off (the spin itself then jumps straight to the result).
+  Actions that act on a result carry that result's id (`wheel:removeWinner` sends the `spinId` it
+  was shown), so if someone produced a newer result in the meantime the server refuses instead of
+  acting on the wrong one — follow that for any "do X to the winner" action.
+
 - **Scaling caveat**: a Socket.IO client must stay connected to the instance it joined a room on.
   `ROOM_STORE=dynamodb` solves the room-*data* half of running multiple instances (any instance can
   read/write any room, and the version check keeps concurrent writes from different instances from

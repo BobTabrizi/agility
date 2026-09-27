@@ -1,7 +1,7 @@
 # Agility
 
 A room-based app for team activities: planning poker, an anonymous feedback box, plinko, a team
-randomizer, and polls.
+randomizer, polls, and a spinning wheel.
 
 Anyone can create a room and share its link with their team. The creator becomes the room's
 first admin (tracked via a token stored in their browser, not an account) and can make others
@@ -78,7 +78,7 @@ touches AWS: the DynamoDB tests run against a real (pay-per-request) table, so t
   invite link. The creator can't be kicked, and you can't kick yourself. Kicking someone who's
   "Away" is a way to tidy up the roster.
 - **Activities**: an admin picks which activity is active for the whole room (Planning Poker,
-  Feedback Box, Plinko, Team Randomizer, or Poll) from the dropdown on the activity name, next to the
+  Feedback Box, Plinko, Team Randomizer, Poll, or Wheel) from the dropdown on the activity name, next to the
   room name; everyone in the room sees the same activity. Participants can open the dropdown to
   see the options, but they're disabled — only admins can switch.
   - **Planning Poker** — deck is admin-customizable (numbers, sizes, or short text options),
@@ -96,6 +96,14 @@ touches AWS: the DynamoDB tests run against a real (pay-per-request) table, so t
     and every client plays the same reveal animation.
   - **Team Randomizer** — an admin enters a list of names and a desired team count; "Generate teams"
     shuffles the names server-side and splits them round-robin into that many teams.
+  - **Wheel** — an admin enters up to 30 options (or pulls in the room's members) and spins a
+    colorful wheel: it whips around several times and coasts to a stop, the pointer flicking as
+    slices pass, then the winner is highlighted with a burst of confetti. The server decides the
+    whole spin, so everyone sees the same animation land on the same winner; anyone who joins
+    afterwards just sees where it landed. After a spin, "Remove <winner>" takes that option off
+    the wheel so the next spin picks from who's left (handy for choosing standup order one by one).
+    Changing the options clears the last result. Devices set to reduce motion skip straight to the
+    result.
   - **Poll** — StrawPoll-style: an admin asks a question with 2–10 options and chooses whether
     people can pick more than one, and whether it's anonymous (only counts shown — the default) or
     named (voters listed under each option). Everyone votes and can change their vote until the

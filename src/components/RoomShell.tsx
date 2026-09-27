@@ -6,6 +6,7 @@ import { PokerOptionsMenu } from "@/components/activities/PokerOptionsMenu";
 import { FeedbackBox } from "@/components/activities/FeedbackBox";
 import { Plinko } from "@/components/activities/Plinko";
 import { Poll } from "@/components/activities/Poll";
+import { Wheel } from "@/components/activities/Wheel";
 import { Teams } from "@/components/activities/Teams";
 import { useRoomActions } from "@/hooks/useRoomActions";
 import { activeParticipantNames } from "@/lib/participants";
@@ -95,6 +96,17 @@ export function RoomShell({
             onCreate={actions.createPoll}
             onVote={actions.votePoll}
             onSetClosed={actions.setPollClosed}
+          />
+        )}
+
+        {state.activeActivity === "wheel" && (
+          <Wheel
+            wheel={state.wheel}
+            isAdmin={isAdmin}
+            activeMemberNames={activeMemberNames}
+            onSetOptions={actions.setWheelOptions}
+            onSpin={actions.spinWheel}
+            onRemoveWinner={actions.removeWheelWinner}
           />
         )}
       </div>

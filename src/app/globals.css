@@ -69,3 +69,23 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Wheel activity (src/components/activities/Wheel.tsx). The spin itself is
+   driven frame by frame in JS; these are the small flourishes around it. */
+@keyframes wheel-pointer-tick {
+  0% { transform: rotate(0deg); }
+  30% { transform: rotate(-22deg); }
+  100% { transform: rotate(0deg); }
+}
+@keyframes wheel-winner-pop {
+  0% { transform: scale(0.6); opacity: 0; }
+  60% { transform: scale(1.06); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes wheel-confetti {
+  0% { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+  100% { transform: translate(var(--dx), var(--dy)) rotate(var(--spin)); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wheel-motion { animation: none !important; }
+}

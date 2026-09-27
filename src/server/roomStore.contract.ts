@@ -35,6 +35,7 @@ export function testRoomStoreContract(createStore: () => RoomStore) {
       expect(await store.listFeedback(room.code)).toEqual([]);
       expect(room.plinko).toEqual({ options: [], isRunning: false, winner: null, seed: null });
       expect(room.teams).toEqual({ names: [], teamCount: 2, teams: [] });
+      expect(room.wheel).toEqual({ options: [], spin: null });
       expect(room.lastActivityAt).toBe(room.createdAt);
       expect(room.version).toBe(1);
     });

@@ -1,4 +1,4 @@
-export type ActivityType = "poker" | "feedback" | "plinko" | "teams" | "poll";
+export type ActivityType = "poker" | "feedback" | "plinko" | "teams" | "poll" | "wheel";
 
 export const ACTIVITIES: { id: ActivityType; label: string }[] = [
   { id: "poker", label: "Planning Poker" },
@@ -6,7 +6,13 @@ export const ACTIVITIES: { id: ActivityType; label: string }[] = [
   { id: "plinko", label: "Plinko" },
   { id: "teams", label: "Team Randomizer" },
   { id: "poll", label: "Poll" },
+  { id: "wheel", label: "Wheel" },
 ];
+
+export const MAX_WHEEL_OPTIONS = 30;
+export const MAX_WHEEL_OPTION_LENGTH = 60;
+/** How long a spin's animation lasts, in every client. */
+export const WHEEL_SPIN_DURATION_MS = 6000;
 
 export const MAX_POLL_QUESTION_LENGTH = 200;
 export const MIN_POLL_OPTIONS = 2;
@@ -182,6 +188,21 @@ export interface PollHistorySummary {
   latestRecordedAt: number | null;
 }
 
+/**
+ * A spinning wheel. The server decides everything about a spin — the winner
+ * and how the wheel gets there — so every client animates the exact same
+ * spin and lands on the same slice.
+ */
+export interface WheelState {
+  options: string[];
+  spin: {
+    id: string; // new per spin: what tells clients to animate
+    winnerIndex: number;
+    turns: number; // whole extra rotations before stopping (drama)
+    offset: number; // where within the winning slice it stops, 0–1 (so it isn't always dead center)
+  } | null; // null until spun, and again whenever the options change
+}
+
 export interface RoomState {
   code: string;
   name: string;
@@ -195,6 +216,7 @@ export interface RoomState {
   teams: TeamsState;
   poll: PollState;
   pollHistorySummary: PollHistorySummary;
+  wheel: WheelState;
 }
 
 /** What is sent to a given socket on every change. */
