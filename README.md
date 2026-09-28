@@ -92,11 +92,14 @@ touches AWS: the DynamoDB tests run against a real (pay-per-request) table, so t
     average), reachable from the "View past rounds" link under the cards and loaded only when you
     open it — anonymous rounds stay anonymous in history even if the toggle is switched off later.
     Admins change the deck from the "⋮" at the top of the card picker.
+    History keeps the newest 50 rounds (each new one pushes out the oldest), and admins can delete
+    single rounds or all of them from the history dialog. Poll history works the same way.
   - **Anonymous Box** — everyone, admins included, can submit free-text feedback (up to 2,000
-    characters each, with a counter as you type) with no name attached, and there's no limit on how
-    many; only admins can see submitted messages (others just see a running submission count), and
+    characters each, with a counter as you type) with no name attached, up to 500 submissions per
+    room; only admins can see submitted messages (others just see a running submission count), and
     the list loads when an admin opens the Anonymous Box. Admins get the submission form above the
-    list.
+    list, and can delete single submissions or all of them (which also makes room once it's full).
+    The form only says "sent" once the server has stored it.
   - **Plinko** — the showpiece picker, for special occasions. An admin enters up to 12 options —
     more would make the bins too narrow to label — and drops the ball: it bounces peg to peg down a staggered board, each
     peg flashing as it's hit, and settles into a bin, which lights up with confetti. It's "movie
@@ -142,6 +145,12 @@ changes:
   to run as-is, but worth slimming down (multi-stage build, compiled server) once you're actually
   tuning for cost/cold-start on ECS/App Runner.
 - The server binds to `0.0.0.0` (not `localhost`), so it's reachable from outside the container.
+- **Behind a reverse proxy** (Caddy, a load balancer), set `TRUSTED_PROXY_HOPS` to how many of
+  your own proxies sit in front of the server (e.g. `1` for Caddy alone). The room-creation limit
+  (10 rooms per IP per day) is per client IP; without this, every request would appear to come
+  from the proxy itself, and everyone would share one allowance. Leave it unset (0) when nothing
+  is in front of the server: then `X-Forwarded-For` is ignored, since a client could fake it.
+  The same IP is used for the 20-connections-per-IP limit (`MAX_CONNECTIONS_PER_IP` to change it).
 - `GET /api/health` returns `{ status: "ok" }` for use as an ALB target group / ECS task health
   check.
 - **Caveat for scaling to multiple instances**: switching to `DynamoRoomStore` solves the room-data
@@ -171,16 +180,29 @@ changes:
   current poker vote and marks them "Away" — "X of Y voted" and the vote grid only ever count
   currently-connected people. Reconnecting (same browser, same room) puts them back as a normal
   participant, but they'll need to vote again.
-- Two tabs open to the same room in the same browser share one identity (same stored client id),
-  so closing either one will mark that person "Away" even if the other tab is still open. Edge
-  case, not handled.
+- One tab per browser: opening a room in a new tab (the same room or another one) takes over,
+  and the older tab disconnects and shows "Agility is open in another tab" with a "Use here"
+  button to take it back. So a person is in one room at a time per browser — two with a private
+  window, which can't see the regular window's tabs. It's coordinated between tabs in the browser
+  (so it also keeps a browser's connections down); a script could still ignore it, which is what
+  the per-IP connection limit is for.
 - Room data is in-memory only by default — restarting the server clears all rooms unless
   `ROOM_STORE=dynamodb` is set (see above), in which case a `DynamoRoomStore` persists rooms in a
   real DynamoDB table instead.
 - With DynamoDB, poker history rounds, poll history and feedback submissions expire 60 days after
   they were recorded, even if the room itself is still in use — a long-running room gradually
-  drops its oldest entries. (The in-memory store keeps them for the life of the room.) Poker and
-  poll history each show the newest 50.
+  drops its oldest entries. (The in-memory store keeps them for the life of the room.)
+- **Limits that keep storage and cost bounded:** a room's roster holds 100 people (when full, a
+  newcomer replaces the longest-gone Away non-admin entry; with none, joining is refused), the
+  Anonymous Box holds 500 submissions, poker and poll history keep the newest 50 each, each client
+  IP can create 10 rooms per rolling day, a single socket message can be at most 64 KB, each
+  connection can send 10 messages a second (bursts of up to 20 are fine; past that, messages are
+  dropped with a "slow down" notice), and each IP can hold 20 connections at once (a browser
+  keeps just one, see above). These counters are kept in memory, so they reset when the server restarts and would
+  be counted per instance if there were several.
+- **Offices share an IP.** Everyone behind one office network or VPN usually shows up as a single
+  IP, so 20 connections per IP could turn people away in a big in-office meeting. Raise it with the
+  `MAX_CONNECTIONS_PER_IP` environment variable if that happens.
 
 ### Future considerations
 

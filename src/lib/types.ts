@@ -102,6 +102,21 @@ export interface FeedbackItem {
 export const MAX_FEEDBACK_LENGTH = 2000;
 
 /**
+ * Most submissions a room's Anonymous Box holds — enforced atomically by the
+ * store (addFeedback). Bounds storage and what an admin's list has to load;
+ * admins can delete submissions to make room.
+ */
+export const MAX_FEEDBACK_SUBMISSIONS = 500;
+
+/**
+ * Most people on a room's roster. When it's full, a new person joining
+ * replaces the longest-gone Away (non-admin) entry; only a room with no such
+ * entry turns them away. Keeps the room item — which holds the roster — far
+ * from DynamoDB's 400 KB item limit.
+ */
+export const MAX_ROOM_PARTICIPANTS = 100;
+
+/**
  * Longest planning poker topic, in characters — enforced by the server
  * (`poker:setTopic`) as well as the topic box, which shows the count. Kept
  * short so a topic reads as a one-line label.
@@ -112,7 +127,7 @@ export const MAX_POKER_TOPIC_LENGTH = 60;
 export const MAX_POKER_HISTORY = 50;
 
 export interface PokerHistorySummary {
-  // Rounds ever recorded (the dialog shows at most MAX_POKER_HISTORY of them).
+  // Rounds in history: capped at MAX_POKER_HISTORY (older ones are trimmed), lowered when an admin deletes.
   count: number;
   // Changes on every reveal, so an open history dialog knows to reload.
   latestRevealedAt: number | null;
@@ -268,6 +283,9 @@ export type PokerHistoryResponse = { ok: true; entries: PokerHistoryEntry[] } | 
 
 /** Reply to `poll:getHistory` — newest first, at most MAX_POLL_HISTORY. */
 export type PollHistoryResponse = { ok: true; entries: PollHistoryEntry[] } | { ok: false; error: string };
+
+/** What an admin deletes from a list (Anonymous Box, poker/poll history): one entry by id, or all. */
+export type DeleteTarget = { id: string } | { all: true };
 
 /** Reply to `feedback:submit`: only confirms once the submission is stored. */
 export type FeedbackSubmitResponse = { ok: true } | { ok: false; error: string };

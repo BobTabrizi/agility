@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { DeleteAllButton, DeleteEntryButton } from "@/components/DeleteControls";
 import { Modal } from "@/components/Modal";
 import { formatRelativeTime } from "@/lib/time";
-import type { PollHistoryEntry } from "@/lib/types";
+import type { DeleteTarget, PollHistoryEntry } from "@/lib/types";
 
 /**
  * Like PokerHistoryModal: fetched when it opens, and again whenever another
@@ -11,10 +12,17 @@ import type { PollHistoryEntry } from "@/lib/types";
  */
 export function PollHistoryModal({
   latestRecordedAt,
+  count,
+  isAdmin,
+  onDelete,
   onFetch,
   onClose,
 }: {
   latestRecordedAt: number | null;
+  // The room's entry count: changes when an admin deletes, so this reloads then too.
+  count: number;
+  isAdmin: boolean;
+  onDelete: (target: DeleteTarget) => void;
   onFetch: () => Promise<PollHistoryEntry[]>;
   onClose: () => void;
 }) {
@@ -36,7 +44,21 @@ export function PollHistoryModal({
     return () => {
       cancelled = true;
     };
-  }, [onFetch, latestRecordedAt]);
+  }, [onFetch, latestRecordedAt, count]);
+
+  // Removed from view straight away; the reload the count change triggers confirms it.
+  function deleteEntries(target: DeleteTarget) {
+    setHistory((h) => h && ("all" in target ? [] : h.filter((e) => e.id !== target.id)));
+    onDelete(target);
+  }
+  const deleteAll = isAdmin && history && history.length > 0 && (
+    <div className="mb-3 flex justify-end">
+      <DeleteAllButton
+        what={`${history.length} poll${history.length === 1 ? "" : "s"}`}
+        onConfirm={() => deleteEntries({ all: true })}
+      />
+    </div>
+  );
 
   const title = history ? `Poll history (${history.length})` : "Poll history";
 
@@ -47,12 +69,17 @@ export function PollHistoryModal({
           {failed ? "Couldn't load poll history. Close this and try again." : "Loading…"}
         </p>
       ) : (
+        <>
+        {deleteAll}
         <div className="flex flex-col gap-3">
           {history.map((entry) => (
             <div key={entry.id} className="rounded-xl border border-neutral-200 px-3 py-2.5 dark:border-neutral-800">
               <div className="flex items-start justify-between gap-2">
                 <p className="text-sm font-medium text-neutral-900 dark:text-neutral-50">{entry.question}</p>
-                <span className="shrink-0 text-xs text-neutral-400">{formatRelativeTime(entry.recordedAt)}</span>
+                <span className="flex shrink-0 items-center gap-1 text-xs text-neutral-400">
+                  {formatRelativeTime(entry.recordedAt)}
+                  {isAdmin && <DeleteEntryButton label="Delete this poll" onDelete={() => deleteEntries({ id: entry.id })} />}
+                </span>
               </div>
               <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
                 {entry.voterCount} {entry.voterCount === 1 ? "voter" : "voters"} ·{" "}
@@ -86,6 +113,7 @@ export function PollHistoryModal({
             </div>
           ))}
         </div>
+        </>
       )}
     </Modal>
   );

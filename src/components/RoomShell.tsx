@@ -56,6 +56,7 @@ export function RoomShell({
             optionsMenu={isAdmin ? <PokerOptionsMenu deck={state.poker.deck} onSetDeck={actions.setDeck} /> : null}
             historySummary={state.pokerHistorySummary}
             onFetchHistory={actions.fetchPokerHistory}
+            onDeleteHistory={actions.deletePokerHistory}
           />
         )}
 
@@ -65,6 +66,7 @@ export function RoomShell({
             isAdmin={isAdmin}
             onSubmit={actions.submitFeedback}
             onFetchItems={actions.fetchFeedbackItems}
+            onDelete={actions.deleteFeedback}
           />
         )}
 
@@ -95,6 +97,7 @@ export function RoomShell({
             isAdmin={isAdmin}
             historySummary={state.pollHistorySummary}
             onFetchHistory={actions.fetchPollHistory}
+            onDeleteHistory={actions.deletePollHistory}
             onCreate={actions.createPoll}
             onVote={actions.votePoll}
             onSetClosed={actions.setPollClosed}

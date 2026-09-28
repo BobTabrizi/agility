@@ -1,9 +1,11 @@
 import type { Server as HTTPServer } from "http";
 import { Server as SocketIOServer, type Socket } from "socket.io";
 import { nanoid } from "nanoid";
-import { roomStore, type StoredRoom } from "@/server/roomStore";
+import { roomStore, type DeleteTarget, type HistoryKind, type StoredRoom } from "@/server/roomStore";
 import { createVersionedThrottle } from "@/server/roomThrottle";
 import { guardHandler } from "@/server/guardHandler";
+import { clientIp } from "@/server/clientIp";
+import { createTokenBucket } from "@/server/rateLimit";
 import { plinkoPath } from "@/lib/plinkoPath";
 import {
   RoomBusyError,
@@ -32,6 +34,8 @@ import {
   MAX_WHEEL_OPTION_LENGTH,
   MAX_WHEEL_OPTIONS,
   MAX_POKER_TOPIC_LENGTH,
+  MAX_FEEDBACK_SUBMISSIONS,
+  MAX_ROOM_PARTICIPANTS,
   type ActivityType,
   type FeedbackItem,
   type FeedbackItemsResponse,
@@ -62,6 +66,21 @@ const MAX_POKER_DECK_SIZE = 30;
 const MAX_TEAM_NAMES = 200;
 
 const BUSY_MESSAGE = "The room is busy right now — please try that again.";
+// Per-connection message budget: short bursts of up to EVENT_BURST, but no
+// more than EVENTS_PER_SECOND sustained. Far above what a person clicking
+// does; it stops a script from turning messages into unlimited billed writes.
+const EVENTS_PER_SECOND = 10;
+const EVENT_BURST = 20;
+const SLOW_DOWN_MESSAGE = "You're doing that too fast — please slow down.";
+// How often a socket over its budget is told so (it'd otherwise get a notice per dropped message).
+const SLOW_DOWN_NOTICE_INTERVAL_MS = 5_000;
+
+// Open Socket.IO connections allowed per client IP (every browser tab is
+// one). Overridable because a whole office often shares one public IP.
+const MAX_CONNECTIONS_PER_IP = Number(process.env.MAX_CONNECTIONS_PER_IP || 20);
+const TOO_MANY_CONNECTIONS_MESSAGE = "Too many open connections from your network — close some other tabs and try again.";
+const connectionsPerIp = new Map<string, number>();
+
 // For anything unexpected (see guardHandler) — the details go to the server log, not the user.
 const SERVER_ERROR_MESSAGE = "Something went wrong on our end — please try that again.";
 
@@ -104,7 +123,8 @@ function finishPoll(room: StoredRoom): PollHistoryEntry | undefined {
   if (!poll.id || voterIds.length === 0) return undefined;
   const now = Date.now();
   room.pollHistorySummary = {
-    count: room.pollHistorySummary.count + (poll.recordedAt === null ? 1 : 0),
+    // Capped like the list itself, which is trimmed to the newest MAX_POLL_HISTORY.
+    count: Math.min(room.pollHistorySummary.count + (poll.recordedAt === null ? 1 : 0), MAX_POLL_HISTORY),
     latestRecordedAt: now,
   };
   poll.recordedAt = now;
@@ -215,6 +235,26 @@ function roomChannel(code: string) {
   return `room:${code.toUpperCase()}`;
 }
 
+/** A delete request's target: `{ all: true }`, or one entry by `id`. */
+function parseDeleteTarget(payload: { id?: unknown; all?: unknown } | undefined): DeleteTarget | undefined {
+  if (payload?.all === true) return { all: true };
+  if (typeof payload?.id === "string" && payload.id.length > 0 && payload.id.length <= 40) return { id: payload.id };
+  return undefined;
+}
+
+/**
+ * History lists are capped at the newest MAX_*_HISTORY entries: once the
+ * summary count has reached the cap (it's capped too), each new entry pushes
+ * the oldest out. Run after the save that added the entry.
+ */
+async function trimHistoryIfFull(room: StoredRoom, kind: HistoryKind) {
+  const [count, max] =
+    kind === "poker"
+      ? [room.pokerHistorySummary.count, MAX_POKER_HISTORY]
+      : [room.pollHistorySummary.count, MAX_POLL_HISTORY];
+  if (count >= max) await roomStore.trimHistory(room.code, kind, max);
+}
+
 /**
  * updateRoom, queued behind this process's other updates to the same room,
  * and reporting "gave up after repeated conflicts" as a result instead of
@@ -268,27 +308,64 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
   io = new SocketIOServer(httpServer, {
     path: "/api/socket",
     cors: { origin: "*" },
+    // Socket.IO accepts 1 MB messages by default; the largest thing we take is
+    // a Team Randomizer name list (200 names x 60 characters), so 64 KB leaves
+    // plenty of room without letting anyone push megabytes at the server.
+    maxHttpBufferSize: 64 * 1024,
+  });
+
+  // Per-IP connection limit, checked before a connection is accepted. A
+  // refused client gets TOO_MANY_CONNECTIONS_MESSAGE as a connect_error (and,
+  // being refused by the server rather than unreachable, doesn't retry).
+  io.use((socket, next) => {
+    const ip = clientIp(socket.handshake.headers, socket.handshake.address);
+    const open = connectionsPerIp.get(ip) ?? 0;
+    if (open >= MAX_CONNECTIONS_PER_IP) return next(new Error(TOO_MANY_CONNECTIONS_MESSAGE));
+    connectionsPerIp.set(ip, open + 1);
+    socket.once("disconnect", () => {
+      const remaining = (connectionsPerIp.get(ip) ?? 1) - 1;
+      if (remaining > 0) connectionsPerIp.set(ip, remaining);
+      else connectionsPerIp.delete(ip);
+    });
+    next();
   });
 
   io.on("connection", (socket: Socket) => {
+    const budget = createTokenBucket({ capacity: EVENT_BURST, refillPerSecond: EVENTS_PER_SECOND });
+    let lastSlowDownNotice = 0;
+
     // Every handler below is registered through this rather than socket.on, so
     // an unexpected error is logged with its event and room, a pending ack gets
     // a failure reply, and a fire-and-forget action tells its sender via
-    // room:error instead of silently doing nothing.
+    // room:error instead of silently doing nothing. It also enforces the
+    // per-connection message budget (except for "disconnect", which isn't a
+    // message from the client).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     function on(event: string, handler: (...args: any[]) => unknown) {
-      socket.on(
-        event,
-        guardHandler(handler, {
-          failedAck: { ok: false, error: SERVER_ERROR_MESSAGE },
-          onError: (err, { hadAck }) => {
-            // Never log the payload: it can hold feedback text or an admin token.
-            const code = (socket.data as SocketData).code ?? "none";
-            console.error(`[socket] ${event} failed (room ${code})`, err);
-            if (!hadAck && socket.connected) socket.emit("room:error", { message: SERVER_ERROR_MESSAGE });
-          },
-        })
-      );
+      const guarded = guardHandler(handler, {
+        failedAck: { ok: false, error: SERVER_ERROR_MESSAGE },
+        onError: (err, { hadAck }) => {
+          // Never log the payload: it can hold feedback text or an admin token.
+          const code = (socket.data as SocketData).code ?? "none";
+          console.error(`[socket] ${event} failed (room ${code})`, err);
+          if (!hadAck && socket.connected) socket.emit("room:error", { message: SERVER_ERROR_MESSAGE });
+        },
+      });
+      socket.on(event, (...args: unknown[]) => {
+        if (event !== "disconnect" && !budget.take()) {
+          // Over budget: dropped. An ack still gets an answer; otherwise the
+          // sender hears about it, but at most every few seconds.
+          const ack = args[args.length - 1];
+          if (typeof ack === "function") {
+            ack({ ok: false, error: SLOW_DOWN_MESSAGE });
+          } else if (Date.now() - lastSlowDownNotice > SLOW_DOWN_NOTICE_INTERVAL_MS) {
+            lastSlowDownNotice = Date.now();
+            socket.emit("room:error", { message: SLOW_DOWN_MESSAGE });
+          }
+          return;
+        }
+        return guarded(...args);
+      });
     }
 
     on(
@@ -324,12 +401,27 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
             existing.isAdmin = isAdmin;
             existing.connected = true;
           } else {
+            if (room.participants.length >= MAX_ROOM_PARTICIPANTS) {
+              // Full: make space by dropping whoever has been on the roster
+              // longest while Away (never an admin), as an admin kick would --
+              // except their poll votes stay counted, as they do for anyone
+              // who leaves. Only a room with no such entry turns people away.
+              const oldestAway = room.participants
+                .filter((p) => !p.connected && !p.isAdmin)
+                .sort((a, b) => a.joinedAt - b.joinedAt)[0];
+              if (!oldestAway) return { error: `This room is full (${MAX_ROOM_PARTICIPANTS} people).` };
+              room.participants = room.participants.filter((p) => p.id !== oldestAway.id);
+            }
             room.participants.push({ id: clientId, name, isAdmin, joinedAt: Date.now(), connected: true });
           }
           room.lastActivityAt = Date.now();
         });
         if (result.status === "busy") {
           ack?.({ ok: false, error: BUSY_MESSAGE });
+          return;
+        }
+        if (result.status === "rejected") {
+          ack?.({ ok: false, error: result.error });
           return;
         }
         if (result.status !== "saved") {
@@ -360,7 +452,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
     });
 
     on("poker:reveal", () =>
-      changeRoom(socket, { adminOnly: true }, (room) => {
+      changeRoom(socket, { adminOnly: true, afterSave: (room) => trimHistoryIfFull(room, "poker") }, (room) => {
         room.poker.revealed = true;
 
         const voteEntries = Object.entries(room.poker.votes);
@@ -387,7 +479,8 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
           average,
         };
         room.pokerHistorySummary = {
-          count: room.pokerHistorySummary.count + 1,
+          // Capped like the list itself, which is trimmed to the newest MAX_POKER_HISTORY.
+          count: Math.min(room.pokerHistorySummary.count + 1, MAX_POKER_HISTORY),
           latestRevealedAt: entry.revealedAt,
         };
         // Stored as its own item next to the room, atomically with this save.
@@ -459,7 +552,13 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
       if (!code) return ack?.({ ok: false, error: "You're not in a room." });
       if (!text) return ack?.({ ok: false, error: "Write something first." });
       const item: FeedbackItem = { id: nanoid(10), text, createdAt: Date.now() };
-      const room = await roomStore.addFeedback(code, item);
+      const room = await roomStore.addFeedback(code, item, MAX_FEEDBACK_SUBMISSIONS);
+      if (room === "full") {
+        return ack?.({
+          ok: false,
+          error: `The Anonymous Box is full (${MAX_FEEDBACK_SUBMISSIONS} submissions) — an admin needs to delete some first.`,
+        });
+      }
       if (!room) return ack?.({ ok: false, error: "That room doesn't exist or has expired." });
       ack?.({ ok: true });
       broadcastRoomState(room);
@@ -604,7 +703,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
               .filter(Boolean)
           ),
         ].slice(0, MAX_POLL_OPTIONS);
-        return changeRoom(socket, { adminOnly: true }, (room) => {
+        return changeRoom(socket, { adminOnly: true, afterSave: (room) => trimHistoryIfFull(room, "poll") }, (room) => {
           if (!question) return { error: "The poll needs a question." };
           if (optionTexts.length < MIN_POLL_OPTIONS) {
             return { error: `The poll needs at least ${MIN_POLL_OPTIONS} different options.` };
@@ -651,7 +750,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
     // Closing records the poll's results in poll history (atomically with the
     // close); reopening lets voting resume, and closing again updates that entry.
     on("poll:setClosed", (payload: { closed?: boolean }) =>
-      changeRoom(socket, { adminOnly: true }, (room) => {
+      changeRoom(socket, { adminOnly: true, afterSave: (room) => trimHistoryIfFull(room, "poll") }, (room) => {
         const closed = Boolean(payload?.closed);
         if (!room.poll.id || room.poll.closed === closed) return SKIP;
         room.poll.closed = closed;
@@ -774,6 +873,64 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
         }
       );
     });
+
+    // ---- Deleting Anonymous Box submissions and history (admins only) -------
+    // Each takes { id } for one entry or { all: true }. The entries are
+    // separate items, so they're deleted directly; the room's count is then
+    // lowered to match, which also tells open lists and dialogs to reload.
+
+    /** This socket's room code if it's an admin there; otherwise tells it no. */
+    async function adminRoomCode(): Promise<string | undefined> {
+      const data = socket.data as SocketData;
+      if (!data.code) return undefined;
+      const room = await roomStore.getRoom(data.code);
+      if (!room || !isRoomAdmin(room, data)) {
+        socket.emit("room:error", { message: "Only a room admin can do that." });
+        return undefined;
+      }
+      return room.code;
+    }
+
+    // The submission count changes with every submission (a direct write), so
+    // the store lowers it atomically along with the delete.
+    on("feedback:delete", async (payload: { id?: string; all?: boolean }) => {
+      const target = parseDeleteTarget(payload);
+      const code = target && (await adminRoomCode());
+      if (!target || !code) return;
+      const room = await roomStore.deleteFeedback(code, target);
+      if (room) broadcastRoomState(room);
+    });
+
+    async function deleteHistory(kind: HistoryKind, payload: { id?: string; all?: boolean }) {
+      const target = parseDeleteTarget(payload);
+      const code = target && (await adminRoomCode());
+      if (!target || !code) return;
+      const deleted = await roomStore.deleteHistory(code, kind, target);
+      if (deleted.length === 0) return;
+      // History counts only change through whole-room saves (reveal,
+      // finishPoll), so lowering one goes through changeRoom too.
+      await changeRoom(socket, {}, (room) => {
+        const all = "all" in target;
+        if (kind === "poker") {
+          const summary = room.pokerHistorySummary;
+          room.pokerHistorySummary = {
+            count: all ? 0 : Math.max(0, summary.count - deleted.length),
+            latestRevealedAt: all ? null : summary.latestRevealedAt,
+          };
+        } else {
+          const summary = room.pollHistorySummary;
+          room.pollHistorySummary = {
+            count: all ? 0 : Math.max(0, summary.count - deleted.length),
+            latestRecordedAt: all ? null : summary.latestRecordedAt,
+          };
+          // If the current poll's entry went, closing it again should record
+          // (and count) it afresh rather than treat it as already recorded.
+          if (room.poll.id && deleted.includes(room.poll.id)) room.poll.recordedAt = null;
+        }
+      });
+    }
+    on("poker:deleteHistory", (payload: { id?: string; all?: boolean }) => deleteHistory("poker", payload));
+    on("poll:deleteHistory", (payload: { id?: string; all?: boolean }) => deleteHistory("poll", payload));
 
     // Adopts a newly granted admin token on an already-joined socket, so being
     // appointed doesn't require a leave/rejoin (which would clear a poker vote).

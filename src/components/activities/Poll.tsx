@@ -8,6 +8,7 @@ import {
   MAX_POLL_OPTIONS,
   MAX_POLL_QUESTION_LENGTH,
   MIN_POLL_OPTIONS,
+  type DeleteTarget,
   type PollHistoryEntry,
   type PollHistorySummary,
   type PublicPollState,
@@ -35,6 +36,7 @@ export function Poll({
   onVote,
   onSetClosed,
   onFetchHistory,
+  onDeleteHistory,
 }: {
   poll: PublicPollState;
   isAdmin: boolean;
@@ -43,6 +45,7 @@ export function Poll({
   onVote: (pollId: string, optionIds: string[]) => void;
   onSetClosed: (closed: boolean) => void;
   onFetchHistory: () => Promise<PollHistoryEntry[]>;
+  onDeleteHistory: (target: DeleteTarget) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -96,6 +99,9 @@ export function Poll({
       {historyOpen && (
         <PollHistoryModal
           latestRecordedAt={historySummary.latestRecordedAt}
+          count={historySummary.count}
+          isAdmin={isAdmin}
+          onDelete={onDeleteHistory}
           onFetch={onFetchHistory}
           onClose={() => setHistoryOpen(false)}
         />

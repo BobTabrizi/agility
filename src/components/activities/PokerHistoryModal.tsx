@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { DeleteAllButton, DeleteEntryButton } from "@/components/DeleteControls";
 import { Modal } from "@/components/Modal";
 import { formatRelativeTime } from "@/lib/time";
-import type { PokerHistoryEntry } from "@/lib/types";
+import type { DeleteTarget, PokerHistoryEntry } from "@/lib/types";
 
 /**
  * History isn't part of the pushed room state — it's fetched when this opens,
@@ -13,10 +14,17 @@ import type { PokerHistoryEntry } from "@/lib/types";
  */
 export function PokerHistoryModal({
   latestRevealedAt,
+  count,
+  isAdmin,
+  onDelete,
   onFetch,
   onClose,
 }: {
   latestRevealedAt: number | null;
+  // The room's entry count: changes when an admin deletes, so this reloads then too.
+  count: number;
+  isAdmin: boolean;
+  onDelete: (target: DeleteTarget) => void;
   onFetch: () => Promise<PokerHistoryEntry[]>;
   onClose: () => void;
 }) {
@@ -38,7 +46,21 @@ export function PokerHistoryModal({
     return () => {
       cancelled = true;
     };
-  }, [onFetch, latestRevealedAt]);
+  }, [onFetch, latestRevealedAt, count]);
+
+  // Removed from view straight away; the reload the count change triggers confirms it.
+  function deleteEntries(target: DeleteTarget) {
+    setHistory((h) => h && ("all" in target ? [] : h.filter((e) => e.id !== target.id)));
+    onDelete(target);
+  }
+  const deleteAll = isAdmin && history && history.length > 0 && (
+    <div className="mb-3 flex justify-end">
+      <DeleteAllButton
+        what={`${history.length} round${history.length === 1 ? "" : "s"}`}
+        onConfirm={() => deleteEntries({ all: true })}
+      />
+    </div>
+  );
 
   const title = history ? `Poker history (${history.length})` : "Poker history";
 
@@ -54,6 +76,7 @@ export function PokerHistoryModal({
 
   return (
     <Modal title={title} onClose={onClose}>
+      {deleteAll}
       <div className="flex flex-col gap-3">
         {history.map((entry) => (
           <div
@@ -64,8 +87,9 @@ export function PokerHistoryModal({
               <p className="min-w-0 break-words text-sm font-medium text-neutral-900 dark:text-neutral-50">
                 {entry.topic || "Untitled round"}
               </p>
-              <span className="shrink-0 text-xs text-neutral-400">
+              <span className="flex shrink-0 items-center gap-1 text-xs text-neutral-400">
                 {formatRelativeTime(entry.revealedAt)}
+                {isAdmin && <DeleteEntryButton label="Delete this round" onDelete={() => deleteEntries({ id: entry.id })} />}
               </span>
             </div>
             <div className="mt-2 flex flex-wrap gap-1.5">

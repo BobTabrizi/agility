@@ -1,5 +1,6 @@
 import { createServer } from "http";
 import next from "next";
+import { CLIENT_IP_HEADER, clientIp } from "./src/server/clientIp";
 
 const dev = process.env.NODE_ENV !== "production";
 // Bind to all interfaces by default so this works unchanged inside a container
@@ -21,7 +22,13 @@ app.prepare().then(async () => {
 
   // Next parses the URL itself (passing a url.parse() result is the old,
   // deprecated pattern — Node warns about url.parse()).
-  const httpServer = createServer((req, res) => handle(req, res));
+  const httpServer = createServer((req, res) => {
+    // The client's IP for per-IP limits (see clientIp.ts). Always overwritten,
+    // so a client can't set it themselves. (Socket.IO's own requests don't
+    // come through here; socketServer.ts works out their IP the same way.)
+    req.headers[CLIENT_IP_HEADER] = clientIp(req.headers, req.socket.remoteAddress);
+    return handle(req, res);
+  });
 
   initSocketServer(httpServer);
 

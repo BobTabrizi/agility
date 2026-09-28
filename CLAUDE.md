@@ -53,6 +53,15 @@ port 3000 keeps answering — check which process owns the port before assuming 
   HTTP server. This is why dev/start run `server.ts` directly instead of the standard `next dev`/`next
   start` — a long-lived process is required for Socket.IO.
 
+- **Client IP for rate limits** (`clientIp`, `src/server/clientIp.ts`, unit-tested): the
+  connection's address, or with `TRUSTED_PROXY_HOPS=N` the Nth-from-last `X-Forwarded-For` entry
+  (the one our own proxy added); never trust `X-Forwarded-For` directly. `server.ts` stamps it on
+  every page/API request as `x-agility-client-ip` (always overwriting what the client sent), for
+  route handlers. Socket.IO's requests don't pass through that handler, so `socketServer.ts` calls
+  `clientIp` on the handshake itself. The room-creation limit (`roomCreationLimiter`,
+  `src/server/rateLimit.ts`, 10 per IP per rolling day) lives on `globalThis` like `roomStore`,
+  and only counts rooms actually created.
+
 - **`initSocketServer` is imported dynamically inside `app.prepare().then(...)`, not as a static
   top-level import.** This matters: `next({...})` loads `.env.local` synchronously in its own
   constructor, but ES module imports resolve their whole chain before any code in the importing file
@@ -96,8 +105,20 @@ port 3000 keeps answering — check which process owns the port before assuming 
     cancel each other): `addFeedback` stores the item, then bumps the count in one `UpdateItem`.
   - History and feedback items expire 60 days after they're *created* (the room's TTL is pushed out
     on every write instead), so old entries age out of a long-lived room on their own. Lists come
-    from one `Query` on the sort-key prefix, newest first; history is capped at the newest
-    `MAX_POKER_HISTORY` (50) when read, not when written.
+    from one `Query` on the sort-key prefix, newest first.
+  - **Caps and deletes.** History is capped at the newest `MAX_POKER_HISTORY` / `MAX_POLL_HISTORY`
+    (50) when written: the summary `count` is capped too, and once it's at the cap, the save's
+    `afterSave` calls `trimHistoryIfFull` → `RoomStore.trimHistory`. Feedback is capped at
+    `MAX_FEEDBACK_SUBMISSIONS` (500), checked atomically in `addFeedback`'s count bump (it returns
+    `"full"`). Admins delete through `feedback:delete` / `poker:deleteHistory` /
+    `poll:deleteHistory` (`{ id }` or `{ all: true }`): the store deletes the items (each one
+    conditionally, so two admins deleting the same entry only count it once), then the count is
+    lowered — atomically in the store for feedback (its count also changes via direct writes),
+    through `changeRoom` for history. The count change is what makes open lists reload, which is
+    why the history dialogs watch `count` as well as the latest timestamp.
+  - The roster is capped at `MAX_ROOM_PARTICIPANTS` (100) in `room:join`: a newcomer to a full
+    room replaces the longest-gone Away non-admin entry (their poll votes stay), else the join is
+    rejected with a message.
   - A new room's starting state comes from `newRoom()` (`src/server/newRoom.ts`), shared by both
     stores — add a default for any new `StoredRoom` field there, not per store. Rooms already in
     DynamoDB won't have a newly added field: fill it in on read in `roomFromItem`
@@ -205,6 +226,14 @@ port 3000 keeps answering — check which process owns the port before assuming 
   history entry itself, not just hidden client-side — so a past anonymous round stays anonymous even
   after the toggle is switched off.
 
+- **One connected tab per browser** (`src/lib/tabClaim.ts`, unit-tested): on mount,
+  `useRoomConnection` claims the browser over a `BroadcastChannel`; the tab holding it disconnects,
+  goes to status `"elsewhere"` (the "open in another tab" screen, whose "Use here" calls
+  `takeOver` — a fresh claim), and replies "released". The new tab only connects after that reply
+  (or 250ms if no tab answers), so in the same room the old tab's disconnect reaches the server
+  before the new join — otherwise the queued `markDisconnected` could run after it and show the
+  person as Away. Private windows have their own channel, so they count separately.
+
 - **Two kinds of error on the client** (`useRoomConnection`): a failed `room:join` ack sets `error`
   and is fatal (the room page shows "Couldn't join room"); a `room:error` event is one rejected
   action, so it sets `notice` instead and is shown as a dismissible, auto-hiding `ErrorNotice` over
@@ -219,7 +248,12 @@ port 3000 keeps answering — check which process owns the port before assuming 
   payload, which can hold feedback text or an admin token — and the sender is told: a pending ack
   gets `{ ok: false, error }`, otherwise a `room:error`. So handlers can just `await` store calls
   and let unexpected errors throw; only expected outcomes (validation, "busy") need handling
-  in the handler. Failed actions aren't retried automatically (replaying a reveal or spin could
+  in the handler. `on()` also spends from the connection's message budget (`createTokenBucket`:
+  bursts of `EVENT_BURST` 20, `EVENTS_PER_SECOND` 10 sustained); over budget, the message is
+  dropped — an ack gets `{ ok: false, error }`, otherwise a "slow down" `room:error` at most every
+  5s. Before that, an `io.use` middleware caps open connections per IP (`MAX_CONNECTIONS_PER_IP`,
+  default 20); a refused client gets a `connect_error` that it doesn't retry (`socket.active` is
+  false), which `useRoomConnection` shows as the join error screen. Failed actions aren't retried automatically (replaying a reveal or spin could
   do it twice). `feedback:submit` is acked (`FeedbackSubmitResponse`) so the form only clears
   and confirms once the submission is stored; on failure the text stays.
 
@@ -295,9 +329,10 @@ port 3000 keeps answering — check which process owns the port before assuming 
   makes an older whole-room copy stale), `setPollVote` (single vs. multiple choice, unknown option,
   replaced or closed poll, wrong activity, concurrent voters), poll history (atomic with the room
   save, re-recording a poll replaces its entry, newest first, limit), poker history (atomic with the
-  room save — a rejected save
-  stores no round; newest first; limit), `addFeedback` (concurrent submissions all land, nothing
-  stored for a missing room), and `deleteRoom` taking the lists with it. `roomStore.test.ts` runs it
+  room save — a rejected save stores no round; newest first; limit), `addFeedback` (concurrent
+  submissions all land, nothing stored for a missing room, the cap refuses and never overshoots
+  under concurrency), `deleteFeedback` (one, all, unknown id), `deleteHistory` / `trimHistory` for
+  both kinds, and `deleteRoom` taking the lists with it. `roomStore.test.ts` runs it
   against `InMemoryRoomStore`; `dynamoRoomStore.test.ts` runs the *same* suite against a real
   DynamoDB table (only via `npm run test:dynamo`; also needs `DYNAMODB_TEST_TABLE` + AWS credentials
   — see `.env.local`). Run this suite against any future `RoomStore` implementation

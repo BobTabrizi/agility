@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { getSocket } from "@/lib/socketClient";
 import type {
   ActivityType,
+  DeleteTarget,
   PlinkoSpeed,
   FeedbackItem,
   FeedbackItemsResponse,
@@ -50,6 +51,11 @@ export function useRoomActions() {
         socket.emit("poll:create", poll),
       votePoll: (pollId: string, optionIds: string[]) => socket.emit("poll:vote", { pollId, optionIds }),
       setPollClosed: (closed: boolean) => socket.emit("poll:setClosed", { closed }),
+      // Admin-only deletes; the room's counts change as a result, which is what
+      // makes open lists and history dialogs reload.
+      deleteFeedback: (target: DeleteTarget) => socket.emit("feedback:delete", target),
+      deletePokerHistory: (target: DeleteTarget) => socket.emit("poker:deleteHistory", target),
+      deletePollHistory: (target: DeleteTarget) => socket.emit("poll:deleteHistory", target),
       fetchPollHistory: async (): Promise<PollHistoryEntry[]> => {
         const res: PollHistoryResponse = await socket.timeout(10_000).emitWithAck("poll:getHistory");
         if (!res.ok) throw new Error(res.error);

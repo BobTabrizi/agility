@@ -27,6 +27,13 @@ export default function HomePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: teamName }),
       });
+      if (res.status === 429) {
+        // Rate limited: the server says why and when to try again.
+        const body = await res.json().catch(() => ({}));
+        setCreateError(body?.error || "Too many rooms created — please try again later.");
+        setCreating(false);
+        return;
+      }
       if (!res.ok) throw new Error("Failed to create room");
       const data: CreateRoomResponse = await res.json();
       setStoredAdminToken(data.code, data.adminToken);

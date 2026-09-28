@@ -12,7 +12,7 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import type { FeedbackItem, PokerHistoryEntry, PollHistoryEntry } from "@/lib/types";
 import { generateRoomCode, newRoom } from "@/server/newRoom";
-import type { HistoryAppend, RoomStore, StoredRoom } from "@/server/roomStore";
+import type { DeleteTarget, HistoryAppend, HistoryKind, RoomStore, StoredRoom } from "@/server/roomStore";
 import { RoomConflictError } from "@/server/roomUpdates";
 
 /*
@@ -39,6 +39,9 @@ const ROOM_SK = "ROOM";
 const HISTORY_PREFIX = "HISTORY#";
 const POLL_PREFIX = "POLL#";
 const FEEDBACK_PREFIX = "FEEDBACK#";
+const HISTORY_PREFIXES: Record<HistoryKind, string> = { poker: HISTORY_PREFIX, poll: POLL_PREFIX };
+
+type ItemKey = { pk: string; sk: string; id: string };
 
 // Matches InMemoryRoomStore's 60-day sweep. The constructor can override it
 // (see dynamoRoomStore.test.ts, which uses a short TTL so test-created items
@@ -320,7 +323,7 @@ export class DynamoRoomStore implements RoomStore {
     }
   }
 
-  async addFeedback(code: string, item: FeedbackItem): Promise<StoredRoom | undefined> {
+  async addFeedback(code: string, item: FeedbackItem, maxSubmissions: number): Promise<StoredRoom | "full" | undefined> {
     const upper = code.toUpperCase();
     const feedbackItem = this.feedbackItem(upper, item);
     // Deliberately not a transaction: submissions come in bursts (everyone at
@@ -339,9 +342,56 @@ export class DynamoRoomStore implements RoomStore {
             UpdateExpression:
               "SET #feedback.submissionCount = #feedback.submissionCount + :one, " +
               "version = version + :one, lastActivityAt = :now, expiresAt = :exp",
+            // The cap is checked here, atomically with the bump, so a burst
+            // of submissions can't overshoot it.
+            ConditionExpression: "attribute_exists(pk) AND #feedback.submissionCount < :max",
+            ExpressionAttributeNames: { "#feedback": "feedback" },
+            ExpressionAttributeValues: { ":one": 1, ":max": maxSubmissions, ":now": now, ":exp": this.expiresAt(now) },
+            ReturnValues: "ALL_NEW",
+            // On failure, says whether the room exists — i.e. full vs. missing.
+            ReturnValuesOnConditionCheckFailure: "ALL_OLD",
+          })
+        )
+      );
+      return roomFromItem(res.Attributes!);
+    } catch (err) {
+      if (errorName(err) !== "ConditionalCheckFailedException") throw err;
+      // Full, or no such room: take back the submission stored a moment ago.
+      await this.client.send(
+        new DeleteCommand({ TableName: this.tableName, Key: { pk: feedbackItem.pk, sk: feedbackItem.sk } })
+      );
+      return (err as { Item?: unknown }).Item ? "full" : undefined;
+    }
+  }
+
+  async deleteFeedback(code: string, target: DeleteTarget): Promise<StoredRoom | undefined> {
+    const upper = code.toUpperCase();
+    const keys = await this.listKeys(upper, FEEDBACK_PREFIX);
+    const deleted = await this.deleteKeys("all" in target ? keys : keys.filter((k) => k.id === target.id));
+    if (deleted.length === 0) return undefined;
+    const now = Date.now();
+    try {
+      const res = await retryTransactionConflict(() =>
+        this.client.send(
+          new UpdateCommand({
+            TableName: this.tableName,
+            Key: this.roomKey(upper),
+            // A relative change for one, so a submission landing meanwhile
+            // isn't lost from the count; all resets it (which also clears any
+            // drift from submissions that expired via TTL).
+            UpdateExpression:
+              ("all" in target
+                ? "SET #feedback.submissionCount = :zero, "
+                : "SET #feedback.submissionCount = #feedback.submissionCount - :deleted, ") +
+              "version = version + :one, lastActivityAt = :now, expiresAt = :exp",
             ConditionExpression: "attribute_exists(pk)",
             ExpressionAttributeNames: { "#feedback": "feedback" },
-            ExpressionAttributeValues: { ":one": 1, ":now": now, ":exp": this.expiresAt(now) },
+            ExpressionAttributeValues: {
+              ...("all" in target ? { ":zero": 0 } : { ":deleted": deleted.length }),
+              ":one": 1,
+              ":now": now,
+              ":exp": this.expiresAt(now),
+            },
             ReturnValues: "ALL_NEW",
           })
         )
@@ -349,12 +399,67 @@ export class DynamoRoomStore implements RoomStore {
       return roomFromItem(res.Attributes!);
     } catch (err) {
       if (errorName(err) !== "ConditionalCheckFailedException") throw err;
-      // No such room: take back the submission stored a moment ago.
-      await this.client.send(
-        new DeleteCommand({ TableName: this.tableName, Key: { pk: feedbackItem.pk, sk: feedbackItem.sk } })
-      );
       return undefined;
     }
+  }
+
+  async deleteHistory(code: string, kind: HistoryKind, target: DeleteTarget): Promise<string[]> {
+    const keys = await this.listKeys(code.toUpperCase(), HISTORY_PREFIXES[kind]);
+    return this.deleteKeys("all" in target ? keys : keys.filter((k) => k.id === target.id));
+  }
+
+  async trimHistory(code: string, kind: HistoryKind, keep: number): Promise<void> {
+    const keys = await this.listKeys(code.toUpperCase(), HISTORY_PREFIXES[kind]);
+    await this.deleteKeys(keys.slice(keep));
+  }
+
+  /** The keys (and ids) of every item under one of the room's list prefixes, newest first. */
+  private async listKeys(pk: string, prefix: string): Promise<ItemKey[]> {
+    const keys: ItemKey[] = [];
+    let startKey: Record<string, unknown> | undefined;
+    do {
+      const res = await this.client.send(
+        new QueryCommand({
+          TableName: this.tableName,
+          KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
+          ExpressionAttributeValues: { ":pk": pk, ":prefix": prefix },
+          ProjectionExpression: "pk, sk, id",
+          ScanIndexForward: false,
+          ExclusiveStartKey: startKey,
+        })
+      );
+      keys.push(...((res.Items ?? []) as ItemKey[]));
+      startKey = res.LastEvaluatedKey;
+    } while (startKey);
+    return keys;
+  }
+
+  /**
+   * Deletes these items, 25 at a time in parallel, each only if it still
+   * exists — so when two admins delete the same entry at once, only one of
+   * them counts it. Returns the ids actually deleted.
+   */
+  private async deleteKeys(keys: ItemKey[]): Promise<string[]> {
+    const deleted: string[] = [];
+    for (let i = 0; i < keys.length; i += 25) {
+      await Promise.all(
+        keys.slice(i, i + 25).map(async ({ pk, sk, id }) => {
+          try {
+            await this.client.send(
+              new DeleteCommand({
+                TableName: this.tableName,
+                Key: { pk, sk },
+                ConditionExpression: "attribute_exists(pk)",
+              })
+            );
+            deleted.push(id);
+          } catch (err) {
+            if (errorName(err) !== "ConditionalCheckFailedException") throw err;
+          }
+        })
+      );
+    }
+    return deleted;
   }
 
   async listPokerHistory(code: string, limit: number): Promise<PokerHistoryEntry[]> {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FeedbackItem, PokerHistoryEntry, PollHistoryEntry } from "@/lib/types";
-import type { RoomStore } from "@/server/roomStore";
+import type { HistoryKind, RoomStore } from "@/server/roomStore";
 import { RoomConflictError, SKIP, updateRoom } from "@/server/roomUpdates";
 
 /**
@@ -10,6 +10,9 @@ import { RoomConflictError, SKIP, updateRoom } from "@/server/roomUpdates";
  * that swap. Not named `*.test.ts` on purpose, so vitest doesn't try to run
  * it directly — it only runs wherever a real `*.test.ts` file calls it.
  */
+// A feedback cap high enough not to matter, for tests that aren't about the cap.
+const CAP = 500;
+
 export function testRoomStoreContract(createStore: () => RoomStore) {
   describe("createRoom", () => {
     it("returns a room with sane defaults", async () => {
@@ -130,7 +133,7 @@ export function testRoomStoreContract(createStore: () => RoomStore) {
       const store = createStore();
       const { code } = await store.createRoom("Team");
       await updateRoom(store, code, () => ({ addPokerHistory: historyEntry("r1", 1_000) }));
-      await store.addFeedback(code, feedbackItem("f1", 1_000));
+      await store.addFeedback(code, feedbackItem("f1", 1_000), CAP);
       await updateRoom(store, code, () => ({ addPollHistory: pollResult("p1", 1_000) }));
 
       await store.deleteRoom(code);
@@ -355,11 +358,12 @@ export function testRoomStoreContract(createStore: () => RoomStore) {
       const store = createStore();
       const { code } = await store.createRoom("Team");
 
-      const room = await store.addFeedback(code, feedbackItem("f1", 1_000));
-      expect(room?.feedback.submissionCount).toBe(1);
-      expect(room?.version).toBe(2);
+      const room = await store.addFeedback(code, feedbackItem("f1", 1_000), CAP);
+      if (!room || room === "full") throw new Error("expected the submission to be stored");
+      expect(room.feedback.submissionCount).toBe(1);
+      expect(room.version).toBe(2);
 
-      await store.addFeedback(code, feedbackItem("f2", 2_000));
+      await store.addFeedback(code, feedbackItem("f2", 2_000), CAP);
       expect(await store.listFeedback(code)).toEqual([feedbackItem("f2", 2_000), feedbackItem("f1", 1_000)]);
     });
 
@@ -368,7 +372,7 @@ export function testRoomStoreContract(createStore: () => RoomStore) {
       const { code } = await store.createRoom("Team");
       const items = Array.from({ length: 8 }, (_, i) => feedbackItem(`f${i}`, 1_000 + i));
 
-      const results = await Promise.all(items.map((item) => store.addFeedback(code, item)));
+      const results = await Promise.all(items.map((item) => store.addFeedback(code, item, CAP)));
 
       expect(results.every(Boolean)).toBe(true);
       expect((await store.listFeedback(code)).length).toBe(items.length);
@@ -379,14 +383,127 @@ export function testRoomStoreContract(createStore: () => RoomStore) {
       const store = createStore();
       const { code } = await store.createRoom("Team");
       const readBefore = (await store.getRoom(code))!;
-      await store.addFeedback(code, feedbackItem("f1", 1_000));
+      await store.addFeedback(code, feedbackItem("f1", 1_000), CAP);
       await expect(store.saveRoom(readBefore)).rejects.toBeInstanceOf(RoomConflictError);
     });
 
     it("stores nothing for a room that doesn't exist", async () => {
       const store = createStore();
-      expect(await store.addFeedback("NOPE99", feedbackItem("f1", 1_000))).toBeUndefined();
+      expect(await store.addFeedback("NOPE99", feedbackItem("f1", 1_000), CAP)).toBeUndefined();
       expect(await store.listFeedback("NOPE99")).toEqual([]);
+    });
+  });
+
+  describe("feedback cap", () => {
+    it("refuses a submission once the room is full, storing nothing", async () => {
+      const store = createStore();
+      const { code } = await store.createRoom("Team");
+      await store.addFeedback(code, feedbackItem("f1", 1_000), 2);
+      await store.addFeedback(code, feedbackItem("f2", 2_000), 2);
+
+      expect(await store.addFeedback(code, feedbackItem("f3", 3_000), 2)).toBe("full");
+      expect((await store.listFeedback(code)).map((f) => f.id)).toEqual(["f2", "f1"]);
+      expect((await store.getRoom(code))!.feedback.submissionCount).toBe(2);
+    });
+
+    it("doesn't overshoot the cap when submissions arrive at once", async () => {
+      const store = createStore();
+      const { code } = await store.createRoom("Team");
+      const items = Array.from({ length: 6 }, (_, i) => feedbackItem(`f${i}`, 1_000 + i));
+
+      const results = await Promise.all(items.map((item) => store.addFeedback(code, item, 4)));
+
+      expect(results.filter((r) => r === "full").length).toBe(2);
+      expect((await store.listFeedback(code)).length).toBe(4);
+      expect((await store.getRoom(code))!.feedback.submissionCount).toBe(4);
+    });
+  });
+
+  describe("deleteFeedback", () => {
+    async function roomWithFeedback(store: RoomStore) {
+      const { code } = await store.createRoom("Team");
+      for (const [id, at] of [["f1", 1_000], ["f2", 2_000], ["f3", 3_000]] as const) {
+        await store.addFeedback(code, feedbackItem(id, at), CAP);
+      }
+      return code;
+    }
+
+    it("deletes one submission, lowering the count and bumping the version", async () => {
+      const store = createStore();
+      const code = await roomWithFeedback(store);
+      const before = (await store.getRoom(code))!;
+
+      const room = await store.deleteFeedback(code, { id: "f2" });
+
+      expect(room?.feedback.submissionCount).toBe(2);
+      expect(room?.version).toBe(before.version + 1);
+      expect((await store.listFeedback(code)).map((f) => f.id)).toEqual(["f3", "f1"]);
+    });
+
+    it("deletes all of them, resetting the count — which makes room under the cap again", async () => {
+      const store = createStore();
+      const code = await roomWithFeedback(store);
+
+      const room = await store.deleteFeedback(code, { all: true });
+
+      expect(room?.feedback.submissionCount).toBe(0);
+      expect(await store.listFeedback(code)).toEqual([]);
+      expect(await store.addFeedback(code, feedbackItem("f4", 4_000), 1)).not.toBe("full");
+    });
+
+    it("changes nothing for an unknown id or a missing room", async () => {
+      const store = createStore();
+      const code = await roomWithFeedback(store);
+      const before = (await store.getRoom(code))!;
+
+      expect(await store.deleteFeedback(code, { id: "nope" })).toBeUndefined();
+      expect(await store.getRoom(code)).toEqual(before);
+      expect(await store.deleteFeedback("NOPE99", { all: true })).toBeUndefined();
+    });
+  });
+
+  describe.each<HistoryKind>(["poker", "poll"])("deleteHistory / trimHistory (%s)", (kind) => {
+    // Four entries, e1 (oldest) … e4 (newest).
+    async function roomWithHistory(store: RoomStore) {
+      const { code } = await store.createRoom("Team");
+      for (let i = 1; i <= 4; i++) {
+        await updateRoom(store, code, () =>
+          kind === "poker"
+            ? { addPokerHistory: historyEntry(`e${i}`, i * 1_000) }
+            : { addPollHistory: pollResult(`e${i}`, i * 1_000) }
+        );
+      }
+      return code;
+    }
+    const list = async (store: RoomStore, code: string) =>
+      (kind === "poker" ? await store.listPokerHistory(code, 50) : await store.listPollHistory(code, 50)).map((e) => e.id);
+
+    it("deletes one entry by id", async () => {
+      const store = createStore();
+      const code = await roomWithHistory(store);
+      expect(await store.deleteHistory(code, kind, { id: "e2" })).toEqual(["e2"]);
+      expect(await list(store, code)).toEqual(["e4", "e3", "e1"]);
+    });
+
+    it("deletes every entry", async () => {
+      const store = createStore();
+      const code = await roomWithHistory(store);
+      expect((await store.deleteHistory(code, kind, { all: true })).sort()).toEqual(["e1", "e2", "e3", "e4"]);
+      expect(await list(store, code)).toEqual([]);
+    });
+
+    it("deletes nothing for an unknown id", async () => {
+      const store = createStore();
+      const code = await roomWithHistory(store);
+      expect(await store.deleteHistory(code, kind, { id: "nope" })).toEqual([]);
+      expect(await list(store, code)).toEqual(["e4", "e3", "e2", "e1"]);
+    });
+
+    it("trims to the newest `keep` entries", async () => {
+      const store = createStore();
+      const code = await roomWithHistory(store);
+      await store.trimHistory(code, kind, 2);
+      expect(await list(store, code)).toEqual(["e4", "e3"]);
     });
   });
 

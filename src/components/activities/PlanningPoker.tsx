@@ -5,6 +5,7 @@ import { HistoryLink } from "@/components/HistoryLink";
 import { PokerHistoryModal } from "@/components/activities/PokerHistoryModal";
 import {
   MAX_POKER_TOPIC_LENGTH,
+  type DeleteTarget,
   type Participant,
   type PokerHistoryEntry,
   type PokerHistorySummary,
@@ -25,6 +26,7 @@ export function PlanningPoker({
   optionsMenu,
   historySummary,
   onFetchHistory,
+  onDeleteHistory,
 }: {
   poker: PokerState;
   participants: Participant[];
@@ -39,6 +41,7 @@ export function PlanningPoker({
   optionsMenu: ReactNode;
   historySummary: PokerHistorySummary;
   onFetchHistory: () => Promise<PokerHistoryEntry[]>;
+  onDeleteHistory: (target: DeleteTarget) => void;
 }) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [topicDraft, setTopicDraft] = useState(poker.topic);
@@ -269,6 +272,9 @@ export function PlanningPoker({
       {historyOpen && (
         <PokerHistoryModal
           latestRevealedAt={historySummary.latestRevealedAt}
+          count={historySummary.count}
+          isAdmin={isAdmin}
+          onDelete={onDeleteHistory}
           onFetch={onFetchHistory}
           onClose={() => setHistoryOpen(false)}
         />

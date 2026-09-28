@@ -25,7 +25,7 @@ export default function RoomPage() {
     setClientId(getOrCreateClientId(code));
   }, [code]);
 
-  const { state, error, notice, dismissNotice, status, self } = useRoomConnection({
+  const { state, error, notice, dismissNotice, status, self, takeOver } = useRoomConnection({
     code,
     name: name ?? "",
     clientId,
@@ -62,6 +62,34 @@ export default function RoomPage() {
               className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
             >
               Rejoin
+            </button>
+            <Link
+              href="/"
+              className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+            >
+              Back home
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === "elsewhere") {
+    return (
+      <div className="flex min-h-screen items-center justify-center px-6">
+        <div className="max-w-sm text-center">
+          <p className="text-lg font-semibold text-neutral-900 dark:text-neutral-50">Agility is open in another tab</p>
+          <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">
+            Only one tab per browser stays connected to a room.
+          </p>
+          <div className="mt-4 flex justify-center gap-2">
+            <button
+              type="button"
+              onClick={takeOver}
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
+            >
+              Use here
             </button>
             <Link
               href="/"

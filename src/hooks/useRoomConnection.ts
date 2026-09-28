@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getSocket } from "@/lib/socketClient";
 import { getStoredAdminToken, setStoredAdminToken } from "@/lib/storage";
+import { createTabClaim } from "@/lib/tabClaim";
 import type { JoinAck, PublicRoomState } from "@/lib/types";
 
 // How long to wait for the server to answer a join before showing an error
@@ -27,7 +28,11 @@ export interface RoomConnection {
   dismissNotice: () => void;
   // "kicked": an admin removed this person; the server has disconnected the
   // socket and it won't auto-reconnect. They can rejoin by reloading.
-  status: "connecting" | "joined" | "error" | "kicked";
+  // "elsewhere": another tab in this browser opened a room and took over
+  // (only one tab per browser stays connected — see tabClaim.ts).
+  status: "connecting" | "joined" | "error" | "kicked" | "elsewhere";
+  // For an "elsewhere" tab: take the connection back from the other tab.
+  takeOver: () => void;
   // Admin status isn't here: it can change mid-session (appointed/removed by
   // another admin), so it's read from state.viewerIsAdmin on every broadcast.
   self: { participantId: string } | null;
@@ -44,11 +49,24 @@ export function useRoomConnection({
   const dismissNotice = useCallback(() => setNotice(null), []);
   const [status, setStatus] = useState<RoomConnection["status"]>("connecting");
   const [self, setSelf] = useState<{ participantId: string } | null>(null);
+  // Bumped by takeOver, re-running the effect below: a fresh claim and connect.
+  const [claimAttempt, setClaimAttempt] = useState(0);
+  const takeOver = useCallback(() => {
+    setStatus("connecting");
+    setClaimAttempt((n) => n + 1);
+  }, []);
 
   useEffect(() => {
     if (!code || !name || !clientId) return;
     const socket = getSocket();
     let cancelled = false;
+    let takenOver = false;
+    const tab = createTabClaim(() => {
+      if (cancelled) return;
+      takenOver = true;
+      setStatus("elsewhere");
+      socket.disconnect();
+    });
     // Only the latest join's reply counts: a reconnect starts a new join, and
     // the old one's timeout mustn't overwrite the new one's success.
     let latestJoin = 0;
@@ -89,6 +107,14 @@ export function useRoomConnection({
     function onRoomError(e: { message: string }) {
       if (!cancelled) setNotice({ id: Date.now(), message: e.message });
     }
+    // The server refused the connection itself (e.g. too many from this
+    // network). `active` is false then: unlike an unreachable server, the
+    // client won't keep retrying, so show why instead of "Connecting…" forever.
+    function onConnectError(err: Error) {
+      if (cancelled || socket.active) return;
+      setError(err.message);
+      setStatus("error");
+    }
     function onKicked(k: { code: string }) {
       if (!cancelled && k.code === code) setStatus("kicked");
     }
@@ -103,23 +129,31 @@ export function useRoomConnection({
     socket.on("admin:granted", onAdminGranted);
     socket.on("room:kicked", onKicked);
     socket.on("connect", join);
+    socket.on("connect_error", onConnectError);
 
-    // The shared socket can be sitting disconnected if this tab was kicked
-    // from a room earlier (server-side disconnects don't auto-reconnect), so
-    // reconnect it rather than waiting for a "connect" that would never come.
-    if (socket.connected) join();
-    else socket.connect();
+    // Only once any other tab of this browser has let go (see tabClaim.ts).
+    // The shared socket can be sitting disconnected (this tab was kicked, or
+    // was taken over and is now taking back), so reconnect it rather than
+    // waiting for a "connect" that would never come.
+    tab.claim().then(() => {
+      if (cancelled || takenOver) return;
+      if (socket.connected) join();
+      else socket.connect();
+    });
 
     return () => {
       cancelled = true;
+      tab.close();
       socket.off("room:state", onState);
       socket.off("room:error", onRoomError);
       socket.off("admin:granted", onAdminGranted);
       socket.off("room:kicked", onKicked);
       socket.off("connect", join);
-      socket.emit("room:leave");
+      socket.off("connect_error", onConnectError);
+      // A disconnected socket would buffer this and send it on reconnecting.
+      if (socket.connected) socket.emit("room:leave");
     };
-  }, [code, name, clientId]);
+  }, [code, name, clientId, claimAttempt]);
 
-  return { state, error, notice, dismissNotice, status, self };
+  return { state, error, notice, dismissNotice, status, self, takeOver };
 }

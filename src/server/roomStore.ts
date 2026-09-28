@@ -1,4 +1,4 @@
-import type { FeedbackItem, PokerHistoryEntry, PollHistoryEntry, RoomState } from "@/lib/types";
+import type { DeleteTarget, FeedbackItem, PokerHistoryEntry, PollHistoryEntry, RoomState } from "@/lib/types";
 import { DynamoRoomStore } from "@/server/dynamoRoomStore";
 import { generateRoomCode, newRoom } from "@/server/newRoom";
 import { RoomConflictError } from "@/server/roomUpdates";
@@ -26,6 +26,11 @@ export interface HistoryAppend {
   // closed again) replaces its entry rather than adding a second one.
   pollResult?: PollHistoryEntry;
 }
+
+/** Which of a room's history lists: revealed poker rounds, or finished polls. */
+export type HistoryKind = "poker" | "poll";
+
+export type { DeleteTarget };
 
 /**
  * Storage abstraction so the socket layer never depends on which backend is
@@ -84,10 +89,26 @@ export interface RoomStore {
   /**
    * Stores a feedback submission and bumps the room's submission count (and
    * version), atomically, without reading the room first — like setVote, so
-   * a burst of submissions doesn't conflict. Returns the updated room, or
+   * a burst of submissions doesn't conflict. Returns the updated room;
+   * "full" (storing nothing) if the room already has `maxSubmissions`; or
    * undefined (storing nothing) if the room doesn't exist.
    */
-  addFeedback(code: string, item: FeedbackItem): Promise<StoredRoom | undefined>;
+  addFeedback(code: string, item: FeedbackItem, maxSubmissions: number): Promise<StoredRoom | "full" | undefined>;
+  /**
+   * Deletes one feedback submission, or all of them, and lowers the room's
+   * submission count to match (to 0 for all) — atomically with other
+   * submissions, like addFeedback. Returns the updated room, or undefined
+   * (changing nothing) if nothing was deleted or the room doesn't exist.
+   */
+  deleteFeedback(code: string, target: DeleteTarget): Promise<StoredRoom | undefined>;
+  /**
+   * Deletes one history entry (by id), or all of them, from the room's poker
+   * or poll history. Only the list: the room's summary count is the caller's
+   * to update (it's a whole-room field). Returns the ids actually deleted.
+   */
+  deleteHistory(code: string, kind: HistoryKind, target: DeleteTarget): Promise<string[]>;
+  /** Deletes all but the newest `keep` entries of the room's poker or poll history. */
+  trimHistory(code: string, kind: HistoryKind, keep: number): Promise<void>;
   /** The room's poker history, newest first, at most `limit` rounds. */
   listPokerHistory(code: string, limit: number): Promise<PokerHistoryEntry[]>;
   /** The room's finished polls, newest (by when the poll started) first, at most `limit`. */
@@ -194,14 +215,46 @@ export class InMemoryRoomStore implements RoomStore {
     return structuredClone(room);
   }
 
-  async addFeedback(code: string, item: FeedbackItem): Promise<StoredRoom | undefined> {
+  async addFeedback(code: string, item: FeedbackItem, maxSubmissions: number): Promise<StoredRoom | "full" | undefined> {
     const record = this.records.get(code.toUpperCase());
     if (!record) return undefined;
+    if (record.room.feedback.submissionCount >= maxSubmissions) return "full";
     record.feedback.unshift(structuredClone(item));
     record.room.feedback.submissionCount += 1;
     record.room.version += 1;
     record.room.lastActivityAt = Date.now();
     return structuredClone(record.room);
+  }
+
+  async deleteFeedback(code: string, target: DeleteTarget): Promise<StoredRoom | undefined> {
+    const record = this.records.get(code.toUpperCase());
+    if (!record) return undefined;
+    const before = record.feedback.length;
+    record.feedback = "all" in target ? [] : record.feedback.filter((item) => item.id !== target.id);
+    const deleted = before - record.feedback.length;
+    if (deleted === 0) return undefined;
+    const { feedback } = record.room;
+    feedback.submissionCount = "all" in target ? 0 : Math.max(0, feedback.submissionCount - deleted);
+    record.room.version += 1;
+    record.room.lastActivityAt = Date.now();
+    return structuredClone(record.room);
+  }
+
+  async deleteHistory(code: string, kind: HistoryKind, target: DeleteTarget): Promise<string[]> {
+    const record = this.records.get(code.toUpperCase());
+    if (!record) return [];
+    const list: { id: string }[] = kind === "poker" ? record.history : record.pollHistory;
+    const deleted = list.filter((entry) => "all" in target || entry.id === target.id).map((entry) => entry.id);
+    if (kind === "poker") record.history = record.history.filter((e) => !deleted.includes(e.id));
+    else record.pollHistory = record.pollHistory.filter((e) => !deleted.includes(e.id));
+    return deleted;
+  }
+
+  async trimHistory(code: string, kind: HistoryKind, keep: number): Promise<void> {
+    const record = this.records.get(code.toUpperCase());
+    if (!record) return;
+    if (kind === "poker") record.history = record.history.slice(0, keep);
+    else record.pollHistory = record.pollHistory.slice(0, keep);
   }
 
   async listPokerHistory(code: string, limit: number): Promise<PokerHistoryEntry[]> {
