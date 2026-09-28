@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch server.ts",
-    "build": "next build",
-    "start": "cross-env NODE_ENV=production tsx server.ts",
+    "build": "next build && node scripts/build-server.mjs",
+    "start": "cross-env NODE_ENV=production node --enable-source-maps dist/server.cjs",
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -29,6 +29,7 @@
     "@types/react-dom": "^19",
     "cross-env": "^10.1.0",
     "dotenv": "^18.0.3",
+    "esbuild": "^0.28.2",
     "eslint": "^9",
     "eslint-config-next": "16.3.5",
     "tailwindcss": "^4",

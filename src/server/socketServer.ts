@@ -91,6 +91,9 @@ const connectionsPerIp = new Map<string, number>();
 const PRESENCE_CHECK_DELAY_MS = 30_000;
 const presenceChecked = new Set<string>();
 
+// Set by closeSocketServer: the process is going away (e.g. a deploy).
+let shuttingDown = false;
+
 // For anything unexpected (see guardHandler) — the details go to the server log, not the user.
 const SERVER_ERROR_MESSAGE = "Something went wrong on our end — please try that again.";
 
@@ -340,6 +343,20 @@ async function changeRoom(
   if (result.status !== "saved") return;
   await options.afterSave?.(result.room);
   broadcastRoomState(result.room);
+}
+
+/**
+ * Graceful shutdown (server.ts calls this on SIGTERM/SIGINT): drops every
+ * client connection — so browsers start reconnecting, to the next server,
+ * straight away rather than noticing a dead connection later — and stops the
+ * HTTP server; resolves once it's closed. Those disconnects deliberately
+ * don't mark anyone Away: they'll be back in seconds, and saving each of them
+ * would be a burst of writes for nothing. Whoever doesn't come back is caught
+ * by the presence check after the restart (PRESENCE_CHECK_DELAY_MS).
+ */
+export function closeSocketServer(): Promise<void> {
+  shuttingDown = true;
+  return new Promise((resolve) => (io ? io.close(() => resolve()) : resolve()));
 }
 
 export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
@@ -987,6 +1004,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
     });
 
     async function markDisconnected() {
+      if (shuttingDown) return; // see closeSocketServer
       const data = socket.data as SocketData;
       const { code, participantId } = data;
       if (!code || !participantId) return;

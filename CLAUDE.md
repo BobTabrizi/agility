@@ -14,8 +14,8 @@ already installs as an optional dependency (tests, lint and `next build` all pas
 ```bash
 npm install       # install deps
 npm run dev        # runs server.ts via `tsx watch` — NOT `next dev`; this is what wires up Socket.IO
-npm run build       # next build
-npm start          # production: cross-env NODE_ENV=production tsx server.ts (runs server.ts, not `next start`)
+npm run build       # next build, then scripts/build-server.mjs bundles server.ts into dist/server.cjs (esbuild)
+npm start          # production: node dist/server.cjs (the compiled custom server, not `next start`; no tsx)
 npm run lint        # eslint
 npx tsc --noEmit -p tsconfig.json   # type-check (no dedicated script)
 npm test           # vitest run — runs once and exits; never touches AWS
@@ -330,6 +330,19 @@ port 3000 keeps answering — check which process owns the port before assuming 
   instances); readiness adds a `getRoom` of a code that can't exist (`HEALTHCHECK`) with a 3s
   timeout. Never put the database in liveness, and never put error details in the response (it's
   public) — log them.
+
+- **Compiled server**: `scripts/build-server.mjs` bundles `server.ts` and everything it imports
+  from `src/` into `dist/server.cjs` (CommonJS, like `tsx` runs it; npm packages stay external and
+  load from `node_modules`). The dynamic `import("./src/server/socketServer")` stays lazy in the
+  bundle (esbuild wraps it in an `__esm` init that only runs when the import does), which keeps
+  the `.env.local` ordering described above — after changing how `server.ts` loads things, check
+  that `npm run build && npm start` still uses DynamoDB (joining an existing room works).
+  Graceful shutdown: SIGTERM/SIGINT → `closeSocketServer()` (drops every client so they reconnect
+  elsewhere, closes the HTTP server) with an 8s deadline. During it, `markDisconnected` does
+  nothing — marking everyone Away would be a burst of writes for people back in seconds; the
+  post-restart presence check catches whoever doesn't return. Windows can't deliver SIGTERM to
+  another process (it's a hard kill), so the signal wiring itself is only exercised on Linux or by
+  Ctrl+C in a terminal.
 
 - **Server restarts / reconnects**: the client keeps showing the room when the connection drops
   (`connected` from `useRoomConnection` goes false until the rejoin is acked), with a

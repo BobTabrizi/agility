@@ -46,8 +46,11 @@ npm run dev
 Then open [http://localhost:3000](http://localhost:3000). `npm run dev` runs the custom server
 (`server.ts`) via `tsx watch`, not `next dev` directly — this is what wires up Socket.IO.
 
-`npm run build` / `npm start` build and run the production Next.js app through the same custom
-server.
+`npm run build` builds the Next.js app and compiles the custom server into one plain-JavaScript
+file, `dist/server.cjs` (bundled with esbuild — `scripts/build-server.mjs`); `npm start` runs that
+with plain `node`, so production needs no TypeScript tooling. The server shuts down gracefully on
+SIGTERM/SIGINT (what a deploy or Ctrl+C sends): it closes every client connection so browsers
+start reconnecting straight away, stops accepting requests, and exits within 8 seconds.
 
 `npm test` runs the test suite (Vitest) once; `npm run test:watch` runs it in watch mode. Neither
 touches AWS: the DynamoDB tests run against a real (pay-per-request) table, so they're opt-in via
@@ -140,10 +143,14 @@ DynamoDB table, just not the default. The app is also built to be container-depl
 changes:
 
 - A `Dockerfile` at the repo root builds and runs the app (`docker build -t agility .` /
-  `docker run -p 3000:3000 agility`). It's a single, un-optimized stage (keeps devDependencies,
-  since the production start script runs `server.ts` via `tsx` rather than precompiled JS) — fine
-  to run as-is, but worth slimming down (multi-stage build, compiled server) once you're actually
-  tuning for cost/cold-start on ECS/App Runner.
+  `docker run -p 3000:3000 agility`). Not yet verified (no Docker on the dev machine so far), and
+  still a single stage that keeps devDependencies. Next steps: a multi-stage build whose final
+  image has only production dependencies plus `.next/` and `dist/` (the server no longer needs
+  `tsx` at runtime), running as the unprivileged `node` user, and starting with
+  `node dist/server.cjs` directly rather than through `npm` (so the stop signal reaches the app
+  and it shuts down gracefully). Note that Docker's `HEALTHCHECK` only marks a container
+  unhealthy; plain Docker doesn't restart it (ECS does; on a single host, use systemd or an
+  autoheal helper).
 - The server binds to `0.0.0.0` (not `localhost`), so it's reachable from outside the container.
 - **Behind a reverse proxy** (Caddy, a load balancer), set `TRUSTED_PROXY_HOPS` to how many of
   your own proxies sit in front of the server (e.g. `1` for Caddy alone). The room-creation limit

@@ -8,6 +8,10 @@ const dev = process.env.NODE_ENV !== "production";
 const hostname = process.env.HOST || "0.0.0.0";
 const port = Number(process.env.PORT || 3000);
 
+// How long a graceful shutdown may take before the process exits anyway —
+// under the 10s or more that Docker/ECS/systemd allow before force-killing.
+const SHUTDOWN_TIMEOUT_MS = 8_000;
+
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
@@ -18,7 +22,7 @@ app.prepare().then(async () => {
   // empty environment. `next({...})` loads .env.local synchronously in its
   // own constructor, so anything importing roomStore.ts (directly or
   // transitively) must come after this line.
-  const { initSocketServer } = await import("./src/server/socketServer");
+  const { initSocketServer, closeSocketServer } = await import("./src/server/socketServer");
 
   // Next parses the URL itself (passing a url.parse() result is the old,
   // deprecated pattern — Node warns about url.parse()).
@@ -35,4 +39,22 @@ app.prepare().then(async () => {
   httpServer.listen(port, () => {
     console.log(`> Agility ready on http://localhost:${port}`);
   });
+
+  // Graceful shutdown. A deploy (Docker, systemd, ECS) stops the old process
+  // with SIGTERM; Ctrl+C sends SIGINT. Close the socket server and HTTP server
+  // (see closeSocketServer) and exit, with a deadline in case something hangs.
+  let stopping = false;
+  async function shutdown(signal: string) {
+    if (stopping) return;
+    stopping = true;
+    console.log(`> ${signal} received, shutting down`);
+    setTimeout(() => {
+      console.error("> Shutdown took too long, exiting anyway");
+      process.exit(1);
+    }, SHUTDOWN_TIMEOUT_MS).unref();
+    await closeSocketServer();
+    process.exit(0);
+  }
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
 });

@@ -42,3 +42,6 @@ next-env.d.ts
 
 # claude code (machine/user-local, not project config)
 .claude/settings.local.json
+
+# compiled custom server (npm run build)
+/dist/

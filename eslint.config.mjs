@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The compiled custom server (npm run build → scripts/build-server.mjs).
+    "dist/**",
   ]),
 ]);
 
