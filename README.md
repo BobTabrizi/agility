@@ -151,8 +151,16 @@ changes:
   from the proxy itself, and everyone would share one allowance. Leave it unset (0) when nothing
   is in front of the server: then `X-Forwarded-For` is ignored, since a client could fake it.
   The same IP is used for the 20-connections-per-IP limit (`MAX_CONNECTIONS_PER_IP` to change it).
-- `GET /api/health` returns `{ status: "ok" }` for use as an ALB target group / ECS task health
-  check.
+- Two health endpoints, both uncacheable, `200` when healthy and `503` when not:
+  - `GET /api/health` (**liveness**): the server is up and Socket.IO is attached. For whatever
+    restarts the server (the `Dockerfile`'s `HEALTHCHECK` uses it). It deliberately never checks
+    the database, since restarting over a DynamoDB hiccup would only disconnect everyone.
+  - `GET /api/health/ready` (**readiness**): the above plus one tiny DynamoDB read, within 3s.
+    Point an uptime monitor (e.g. UptimeRobot, Route 53 health checks) here, to alert rather than
+    restart. Checked once a minute that's about 43k small reads a month, a fraction of a cent.
+
+  Both return only which check failed (e.g. `{"status":"error","checks":{"realtime":"ok","database":"failed"}}`);
+  the actual error is in the server log as `[health] database check failed …`.
 - **Caveat for scaling to multiple instances**: switching to `DynamoRoomStore` solves the room-data
   half of this (any instance can read/write any room, and versioned writes stop two instances from
   overwriting each other's changes to the same room), but Socket.IO still needs a client to stay
@@ -212,6 +220,10 @@ changes:
 
 ### Future considerations
 
+- **Logs and uptime monitoring once hosted.** The server writes errors (and failed health
+  checks, as `[health] …`) to its standard output. Ship that to CloudWatch Logs when setting up
+  hosting (the CloudWatch agent on EC2, or automatic on ECS) so it's searchable and survives
+  restarts, and point a free uptime monitor at `/api/health/ready` to get alerted.
 - **A vote sent right after a Reset can be rejected.** Votes are written directly (one field, no
   queue), while Reset goes through the queued whole-room path. A vote that reaches DynamoDB before
   a Reset it was sent after still sees the round as revealed, so it's refused and the card just

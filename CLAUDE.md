@@ -324,6 +324,13 @@ port 3000 keeps answering — check which process owns the port before assuming 
   marks Away anyone with no socket in the room's channel *on this server*, so with several
   instances it needs the same shared adapter (for `fetchSockets`) — or has to go.
 
+- **Health checks** (`src/server/health.ts`, unit-tested; routes `/api/health` and
+  `/api/health/ready`): liveness only checks things a restart fixes (Socket.IO attached — a
+  `globalThis` flag set by `initSocketServer`, since API routes don't share `server.ts`'s module
+  instances); readiness adds a `getRoom` of a code that can't exist (`HEALTHCHECK`) with a 3s
+  timeout. Never put the database in liveness, and never put error details in the response (it's
+  public) — log them.
+
 - **Server restarts / reconnects**: the client keeps showing the room when the connection drops
   (`connected` from `useRoomConnection` goes false until the rejoin is acked), with a
   "reconnecting" banner and the room `inert` — anything sent before the rejoin would be ignored by

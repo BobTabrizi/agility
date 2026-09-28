@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 3000
+    },
+    {
+      "name": "agility-prod",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["cross-env", "PORT=3100", "npm", "start"],
+      "port": 3100
     }
   ]
 }

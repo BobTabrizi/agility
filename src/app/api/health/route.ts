@@ -1,6 +1,8 @@
-import { NextResponse } from "next/server";
+import { roomStore } from "@/server/roomStore";
+import { healthResponse, runHealthChecks } from "@/server/health";
 
-// Used by load balancer / container health checks (e.g. an ECS target group).
+// Liveness — for whatever restarts the server (the Dockerfile's HEALTHCHECK,
+// systemd…). Deliberately shallow: see src/server/health.ts.
 export async function GET() {
-  return NextResponse.json({ status: "ok" });
+  return healthResponse(await runHealthChecks({ deep: false, store: roomStore }));
 }

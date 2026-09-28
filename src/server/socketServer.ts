@@ -4,6 +4,7 @@ import { nanoid } from "nanoid";
 import { roomStore, type DeleteTarget, type HistoryKind, type StoredRoom } from "@/server/roomStore";
 import { createVersionedThrottle } from "@/server/roomThrottle";
 import { guardHandler } from "@/server/guardHandler";
+import { markRealtimeReady } from "@/server/health";
 import { clientIp } from "@/server/clientIp";
 import { createTokenBucket } from "@/server/rateLimit";
 import { plinkoPath } from "@/lib/plinkoPath";
@@ -352,6 +353,8 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
     // plenty of room without letting anyone push megabytes at the server.
     maxHttpBufferSize: 64 * 1024,
   });
+  // Reported by the health checks (src/server/health.ts).
+  markRealtimeReady();
 
   // Per-IP connection limit, checked before a connection is accepted. A
   // refused client gets TOO_MANY_CONNECTIONS_MESSAGE as a connect_error (and,
