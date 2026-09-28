@@ -168,6 +168,12 @@ changes:
   fails, they stay shown as connected until they next join or leave; and if the server can't be
   reached at all when the page loads, it stays on "Connecting…" while the browser keeps retrying
   the connection (the 10s join timeout starts once connected).
+- **Server restarts (deploys)** disconnect everyone for a few seconds. Rooms live in DynamoDB, so
+  nothing is lost: each open room shows a "Connection lost — reconnecting…" banner, goes read-only
+  (so no click is silently dropped), and rejoins on its own when the server is back. People who
+  closed their tab during the restart are marked Away about 30 seconds after their room is next
+  used (the old server couldn't record them leaving). With in-memory storage, a restart still
+  wipes every room.
 - No accounts: whoever holds an admin token in their browser is an admin. Clearing site data or
   switching devices loses admin access to a room (the room itself is unaffected) — though another
   admin can re-appoint you on the new device.

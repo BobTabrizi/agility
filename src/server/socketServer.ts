@@ -81,6 +81,15 @@ const MAX_CONNECTIONS_PER_IP = Number(process.env.MAX_CONNECTIONS_PER_IP || 20);
 const TOO_MANY_CONNECTIONS_MESSAGE = "Too many open connections from your network — close some other tabs and try again.";
 const connectionsPerIp = new Map<string, number>();
 
+// After a restart (e.g. a deploy), rooms can list people as connected who
+// never came back: the old process died before it could record them leaving.
+// So the first join to each room in this process schedules one presence check,
+// late enough that everyone still around has reconnected (Socket.IO retries
+// within a few seconds). Once per room per process: it's only restarts that
+// leave stale entries behind.
+const PRESENCE_CHECK_DELAY_MS = 30_000;
+const presenceChecked = new Set<string>();
+
 // For anything unexpected (see guardHandler) — the details go to the server log, not the user.
 const SERVER_ERROR_MESSAGE = "Something went wrong on our end — please try that again.";
 
@@ -230,6 +239,36 @@ function broadcastRoomState(room: StoredRoom) {
   throttleRoomState(room.code, room);
 }
 
+
+/**
+ * Marks as Away anyone the room lists as connected who has no socket in its
+ * channel on this server — see PRESENCE_CHECK_DELAY_MS. Only right while
+ * there's a single instance: with several, sockets on other instances aren't
+ * seen here (fetchSockets would need a shared adapter, see the scaling caveat
+ * in CLAUDE.md).
+ */
+async function checkPresence(code: string) {
+  const sockets = await io!.in(roomChannel(code)).fetchSockets();
+  const present = new Set(sockets.map((s) => (s.data as SocketData).participantId));
+  const result = await tryUpdateRoom(code, (room) => {
+    const stale = room.participants.filter((p) => p.connected && !present.has(p.id));
+    if (stale.length === 0) return SKIP;
+    for (const p of stale) {
+      p.connected = false;
+      delete room.poker.votes[p.id];
+    }
+  });
+  if (result.status === "saved") broadcastRoomState(result.room);
+}
+
+function schedulePresenceCheck(code: string) {
+  if (presenceChecked.has(code)) return;
+  presenceChecked.add(code);
+  const timer = setTimeout(() => {
+    checkPresence(code).catch((err) => console.error(`Presence check for room ${code} failed`, err));
+  }, PRESENCE_CHECK_DELAY_MS);
+  timer.unref?.();
+}
 
 function roomChannel(code: string) {
   return `room:${code.toUpperCase()}`;
@@ -433,6 +472,7 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
         await socket.join(roomChannel(code));
         ack?.({ ok: true, participantId: clientId });
         broadcastRoomState(result.room);
+        schedulePresenceCheck(code);
       }
     );
 

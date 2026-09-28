@@ -320,6 +320,21 @@ port 3000 keeps answering — check which process owns the port before assuming 
   overwriting each other), but not this half — that still needs sticky sessions (session affinity on
   the load balancer) or a Socket.IO adapter (typically Redis) so a broadcast on one instance reaches
   sockets connected to another. Not relevant for local dev or a single instance.
+  The post-restart presence check (`checkPresence` in `socketServer.ts`) is single-instance too: it
+  marks Away anyone with no socket in the room's channel *on this server*, so with several
+  instances it needs the same shared adapter (for `fetchSockets`) — or has to go.
+
+- **Server restarts / reconnects**: the client keeps showing the room when the connection drops
+  (`connected` from `useRoomConnection` goes false until the rejoin is acked), with a
+  "reconnecting" banner and the room `inert` — anything sent before the rejoin would be ignored by
+  the server, so it mustn't be clickable. A rejoin doesn't go back to the full-screen
+  "Connecting…" (`join()` keeps status `"joined"`). Server side, the old process can't record who
+  left while it was down, so the first join to each room in a process schedules
+  `checkPresence` 30s later (`PRESENCE_CHECK_DELAY_MS`), once per room.
+  Testing gotcha: the dev server can't show this — Next's dev mode reloads the page when the
+  server restarts. Use the `agility-prod` launch config (`.claude/launch.json`: the production
+  build on port 3100, after `npm run build`) and restart it with the preview tools, watching from a
+  tab the preview tool didn't open (restarting navigates its own tab back to `/`).
 
 - **`RoomStore` contract tests**: `src/server/roomStore.contract.ts` exports
   `testRoomStoreContract(createStore)`, a shared Vitest suite describing the behavior any `RoomStore`

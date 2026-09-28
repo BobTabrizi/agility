@@ -25,7 +25,7 @@ export default function RoomPage() {
     setClientId(getOrCreateClientId(code));
   }, [code]);
 
-  const { state, error, notice, dismissNotice, status, self, takeOver } = useRoomConnection({
+  const { state, error, notice, dismissNotice, status, self, takeOver, connected } = useRoomConnection({
     code,
     name: name ?? "",
     clientId,
@@ -141,7 +141,20 @@ export default function RoomPage() {
 
   return (
     <>
-      <RoomShell state={state} selfId={self.participantId} isAdmin={state.viewerIsAdmin} />
+      {!connected && (
+        <div
+          role="status"
+          className="fixed inset-x-0 top-3 z-50 mx-auto flex w-fit items-center gap-2 rounded-full bg-amber-100 px-4 py-2 text-sm font-medium text-amber-900 shadow-lg dark:bg-amber-900 dark:text-amber-100"
+        >
+          <span aria-hidden className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
+          Connection lost — reconnecting…
+        </div>
+      )}
+      {/* While reconnecting the room stays visible but can't be used (inert):
+          anything sent before the rejoin would be ignored by the server. */}
+      <div inert={!connected} className={connected ? undefined : "opacity-60 transition-opacity"}>
+        <RoomShell state={state} selfId={self.participantId} isAdmin={state.viewerIsAdmin} />
+      </div>
       {notice && <ErrorNotice key={notice.id} message={notice.message} onDismiss={dismissNotice} />}
     </>
   );

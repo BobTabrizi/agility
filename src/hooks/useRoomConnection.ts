@@ -33,6 +33,11 @@ export interface RoomConnection {
   status: "connecting" | "joined" | "error" | "kicked" | "elsewhere";
   // For an "elsewhere" tab: take the connection back from the other tab.
   takeOver: () => void;
+  // Whether the room shown is live: false from a dropped connection (e.g. a
+  // server restart) until the automatic reconnect has rejoined. The room
+  // stays on screen meanwhile, but shouldn't be interacted with — anything
+  // sent before the rejoin would be ignored by the server.
+  connected: boolean;
   // Admin status isn't here: it can change mid-session (appointed/removed by
   // another admin), so it's read from state.viewerIsAdmin on every broadcast.
   self: { participantId: string } | null;
@@ -49,6 +54,7 @@ export function useRoomConnection({
   const dismissNotice = useCallback(() => setNotice(null), []);
   const [status, setStatus] = useState<RoomConnection["status"]>("connecting");
   const [self, setSelf] = useState<{ participantId: string } | null>(null);
+  const [connected, setConnected] = useState(false);
   // Bumped by takeOver, re-running the effect below: a fresh claim and connect.
   const [claimAttempt, setClaimAttempt] = useState(0);
   const takeOver = useCallback(() => {
@@ -73,7 +79,9 @@ export function useRoomConnection({
 
     function join() {
       const thisJoin = ++latestJoin;
-      setStatus("connecting");
+      // A rejoin after a dropped connection keeps showing the room (behind
+      // the "reconnecting" banner) rather than going back to "Connecting…".
+      setStatus((s) => (s === "joined" ? s : "connecting"));
       // Read fresh on every (re)join rather than captured once, so a token
       // granted mid-session (admin:granted) is still presented after a reconnect.
       const adminToken = getStoredAdminToken(code);
@@ -94,6 +102,7 @@ export function useRoomConnection({
         setError(null);
         setSelf({ participantId: ack.participantId! });
         setStatus("joined");
+        setConnected(true);
       });
     }
 
@@ -115,6 +124,9 @@ export function useRoomConnection({
       setError(err.message);
       setStatus("error");
     }
+    function onDisconnect() {
+      if (!cancelled) setConnected(false);
+    }
     function onKicked(k: { code: string }) {
       if (!cancelled && k.code === code) setStatus("kicked");
     }
@@ -130,6 +142,7 @@ export function useRoomConnection({
     socket.on("room:kicked", onKicked);
     socket.on("connect", join);
     socket.on("connect_error", onConnectError);
+    socket.on("disconnect", onDisconnect);
 
     // Only once any other tab of this browser has let go (see tabClaim.ts).
     // The shared socket can be sitting disconnected (this tab was kicked, or
@@ -150,10 +163,11 @@ export function useRoomConnection({
       socket.off("room:kicked", onKicked);
       socket.off("connect", join);
       socket.off("connect_error", onConnectError);
+      socket.off("disconnect", onDisconnect);
       // A disconnected socket would buffer this and send it on reconnecting.
       if (socket.connected) socket.emit("room:leave");
     };
   }, [code, name, clientId, claimAttempt]);
 
-  return { state, error, notice, dismissNotice, status, self, takeOver };
+  return { state, error, notice, dismissNotice, status, self, takeOver, connected };
 }
