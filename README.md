@@ -46,6 +46,11 @@ npm run dev
 Then open [http://localhost:3000](http://localhost:3000). `npm run dev` runs the custom server
 (`server.ts`) via `tsx watch`, not `next dev` directly — this is what wires up Socket.IO.
 
+To test from a phone or another device on your network (`http://<this machine's IP>:3000`), add
+this machine's LAN IP to `allowedDevOrigins` in `next.config.ts` and restart the dev server.
+Without it the dev server blocks its scripts for that address: the page shows, but nothing on it
+works (buttons stay disabled, the join box doesn't uppercase). Development only.
+
 `npm run build` builds the Next.js app and compiles the custom server into one plain-JavaScript
 file, `dist/server.cjs` (bundled with esbuild — `scripts/build-server.mjs`); `npm start` runs that
 with plain `node`, so production needs no TypeScript tooling. The server shuts down gracefully on
@@ -63,8 +68,9 @@ touches AWS: the DynamoDB tests run against a real (pay-per-request) table, so t
   `localStorage` on your device only (`agility:admin:<code>`) and is what marks you as admin when
   you connect.
 - **Join a room** via `/room/<CODE>`, or by typing the 6-character code into the home page's join
-  box (pasting a whole invite link works too) — the link icon next to the room code opens a modal with
-  the link, a QR code (scannable to join from a phone), and a one-click copy. New participants
+  box (pasting a whole invite link works too). Clicking the link icon next to the room code
+  copies the invite link straight away ("Invite link copied to clipboard") and opens a dialog with
+  the link, a QR code (scannable to join from a phone) and a Copy button. New participants
   just pick a display name — no account needed. Each browser gets a stable
   per-room identity (`agility:client:<code>` in `localStorage`), so refreshing the page or
   reconnecting reactivates the same roster entry rather than joining as a new person.
@@ -95,7 +101,8 @@ touches AWS: the DynamoDB tests run against a real (pay-per-request) table, so t
   room name; everyone in the room sees the same activity. Participants can open the dropdown to
   see the options, but they're disabled — only admins can switch.
   - **Planning Poker** — an admin sets the round's topic (up to 60 characters, with a live
-    count), and the deck is admin-customizable (numbers, sizes, or short text options);
+    count), and the deck is admin-customizable (numbers, sizes, or short text options; rooms start with the
+    Simple deck, 1 2 3 5 8 13 ?, and Fibonacci, T-shirt sizes and others are one-click presets);
     votes are hidden until an admin reveals them, then shows each vote plus the average of
     numeric votes. An anonymous-voting toggle hides who voted what (names stay visible, values
     don't) and resets the round when flipped. Past rounds are kept as poker history (topic, votes,

@@ -73,7 +73,7 @@ export function ActivityMenu({
         <div
           role="menu"
           aria-label="Activities"
-          className={`absolute ${alignRight ? "right-0" : "left-0"} top-full z-20 mt-1.5 w-56 overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-lg dark:border-neutral-800 dark:bg-neutral-900`}
+          className={`absolute ${alignRight ? "right-0" : "left-0"} top-full z-20 mt-1.5 w-56 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-lg dark:border-neutral-800 dark:bg-neutral-900`}
         >
           {ACTIVITIES.map((activity) => {
             const isActive = activity.id === active;

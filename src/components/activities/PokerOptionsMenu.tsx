@@ -42,7 +42,7 @@ export function PokerOptionsMenu({ deck, onSetDeck }: { deck: string[]; onSetDec
       {menuOpen && (
         <div
           role="menu"
-          className="absolute right-0 z-20 mt-2 w-52 overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-lg dark:border-neutral-800 dark:bg-neutral-900"
+          className="absolute right-0 z-20 mt-2 w-52 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-lg dark:border-neutral-800 dark:bg-neutral-900"
         >
           <button
             type="button"

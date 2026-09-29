@@ -240,6 +240,14 @@ port 3000 keeps answering — check which process owns the port before assuming 
   before the new join — otherwise the queued `markDisconnected` could run after it and show the
   person as Away. Private windows have their own channel, so they count separately.
 
+- **Copying to the clipboard**: use `copyText` (`src/lib/clipboard.ts`), called directly from the
+  click handler. It tries the synchronous `execCommand("copy")` first and the Clipboard API second
+  — the reverse of the usual order, on purpose: a refused async Clipboard API call (the in-app
+  browser pane denies it) can leave a follow-up copy no longer counted as part of the click, and
+  that order sometimes copied nothing in testing; `execCommand` also works over plain HTTP, where
+  the Clipboard API doesn't exist. Success confirmations use `Toast` (`src/components/Toast.tsx`,
+  the green counterpart of `ErrorNotice`; `z-[60]`, so it shows above dialogs).
+
 - **Two kinds of error on the client** (`useRoomConnection`): a failed `room:join` ack sets `error`
   and is fatal (the room page shows "Couldn't join room"); a `room:error` event is one rejected
   action, so it sets `notice` instead and is shown as a dismissible, auto-hiding `ErrorNotice` over
@@ -309,6 +317,12 @@ port 3000 keeps answering — check which process owns the port before assuming 
   still read as clickable. Copy the classes from an existing one (e.g. Reveal in `PlanningPoker.tsx`).
   Outlined secondary buttons that can be disabled (Save options, Update) keep `disabled:opacity-40`
   but likewise use `enabled:hover:` / `dark:enabled:hover:` and `disabled:cursor-not-allowed`.
+  Dropdown menus (`ActivityMenu`, `ParticipantMenu`, `PokerOptionsMenu`) have no vertical padding,
+  so an item's hover highlight runs edge to edge (the menu's rounded corners clip it) — padding
+  there left a gap above and below, most visible in a one-item menu.
+  Clickable buttons get the pointer cursor from one base-layer rule in `globals.css` (Tailwind v4
+  gives buttons the default arrow); no need for `cursor-pointer` on each — a `cursor-*` class on a
+  button still overrides it.
 
 - **Synchronized animations** (Wheel, Plinko): the server decides the outcome *and* everything the
   animation needs (the wheel's `spin` includes `turns` and `offset`; Plinko's `drop` includes the

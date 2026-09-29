@@ -3,17 +3,20 @@
 import { useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { Modal } from "@/components/Modal";
+import { copyText } from "@/lib/clipboard";
 
-export function InviteModal({ url, onClose }: { url: string; onClose: () => void }) {
-  const [copied, setCopied] = useState(false);
+/**
+ * `copied`: the link was already copied as this opened (the header's link
+ * icon copies it on click), so the button starts out saying so.
+ */
+export function InviteModal({ url, copied: copiedOnOpen, onClose }: { url: string; copied: boolean; onClose: () => void }) {
+  const [copiedHere, setCopiedHere] = useState(false);
+  const copied = copiedOnOpen || copiedHere;
 
   async function copyLink() {
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // clipboard unavailable — no-op
+    if (await copyText(url)) {
+      setCopiedHere(true);
+      setTimeout(() => setCopiedHere(false), 2000);
     }
   }
 

@@ -187,7 +187,7 @@ export default function HomePage() {
             <button
               type="submit"
               disabled={joinCode.length !== ROOM_CODE_LENGTH}
-              className="h-11 shrink-0 rounded-lg border border-neutral-300 bg-white px-5 text-sm font-semibold text-neutral-800 shadow-sm transition enabled:hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-500/20 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:enabled:hover:bg-neutral-800"
+              className="h-11 shrink-0 rounded-lg bg-indigo-600 px-5 text-sm font-semibold text-white shadow-sm transition enabled:hover:bg-indigo-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-500/30 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400 disabled:shadow-none dark:disabled:bg-neutral-800 dark:disabled:text-neutral-500"
             >
               Join
             </button>

@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ActivityMenu } from "@/components/ActivityMenu";
 import { InviteModal } from "@/components/InviteModal";
 import { Modal } from "@/components/Modal";
 import { ParticipantMenu } from "@/components/ParticipantMenu";
+import { Toast } from "@/components/Toast";
+import { copyText } from "@/lib/clipboard";
 import { MAX_DISPLAY_NAME_LENGTH, truncateName } from "@/lib/participants";
 import type { ActivityType, LeaveResponse, Participant } from "@/lib/types";
 
@@ -38,6 +40,10 @@ export function RoomHeader({
 }) {
   const [rosterOpen, setRosterOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
+  // When the link icon last copied the invite link (shows the "copied" pop-up;
+  // a new timestamp re-shows it on a repeat click).
+  const [linkCopiedAt, setLinkCopiedAt] = useState<number | null>(null);
+  const hideCopiedToast = useCallback(() => setLinkCopiedAt(null), []);
   const [kickTarget, setKickTarget] = useState<Participant | null>(null);
   const [confirmingLeave, setConfirmingLeave] = useState(false);
   const [leaving, setLeaving] = useState(false);
@@ -109,9 +115,14 @@ export function RoomHeader({
           </span>
           <button
             type="button"
-            onClick={() => setInviteOpen(true)}
-            aria-label="Invite to room"
-            title="Invite to room"
+            onClick={() => {
+              // Copy straight away (it has to happen within the click) and
+              // open the invite dialog for the QR code.
+              setInviteOpen(true);
+              void copyText(inviteUrl()).then((ok) => ok && setLinkCopiedAt(Date.now()));
+            }}
+            aria-label="Copy invite link"
+            title="Copy invite link"
             className="ml-1 inline-flex h-6 w-6 items-center justify-center rounded-md text-neutral-400 hover:bg-neutral-100 hover:text-indigo-600 dark:hover:bg-neutral-800 dark:hover:text-indigo-400"
           >
             <LinkIcon />
@@ -235,7 +246,17 @@ export function RoomHeader({
         </div>
       </div>
 
-      {inviteOpen && <InviteModal url={inviteUrl()} onClose={() => setInviteOpen(false)} />}
+      {inviteOpen && (
+        <InviteModal
+          url={inviteUrl()}
+          copied={linkCopiedAt !== null}
+          onClose={() => {
+            setInviteOpen(false);
+            setLinkCopiedAt(null);
+          }}
+        />
+      )}
+      {linkCopiedAt !== null && <Toast key={linkCopiedAt} message="Invite link copied to clipboard" onDone={hideCopiedToast} />}
 
       {confirmingLeave && (
         <Modal title="Leave this room?" onClose={() => !leaving && setConfirmingLeave(false)}>

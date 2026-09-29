@@ -40,17 +40,22 @@ export const MAX_TEAM_NAME_LENGTH = 60;
 
 export const MAX_TEAM_COUNT = 30;
 
-export const DEFAULT_POKER_DECK = ["0", "1", "2", "3", "5", "8", "13", "21", "34", "55", "89", "?", "☕"];
+const SIMPLE_POKER_DECK = ["1", "2", "3", "5", "8", "13", "?"];
+const FIBONACCI_POKER_DECK = ["0", "1", "2", "3", "5", "8", "13", "21", "34", "55", "89", "?", "☕"];
+
+/** The deck a new room starts with (the first preset in the deck editor). */
+export const DEFAULT_POKER_DECK = SIMPLE_POKER_DECK;
 
 // Cards longer than this don't display well in the card grid, so the deck
 // editor caps input at this length and the server enforces it too.
 export const MAX_POKER_CARD_LENGTH = 40;
 
+// In the order the deck editor shows them; the default comes first.
 export const POKER_PRESET_DECKS: { label: string; deck: string[] }[] = [
-  { label: "Fibonacci", deck: DEFAULT_POKER_DECK },
+  { label: "Simple", deck: SIMPLE_POKER_DECK },
+  { label: "Fibonacci", deck: FIBONACCI_POKER_DECK },
   { label: "T-shirt sizes", deck: ["XS", "S", "M", "L", "XL", "XXL", "?"] },
   { label: "Powers of 2", deck: ["0", "1", "2", "4", "8", "16", "32", "?"] },
-  { label: "Simple", deck: ["1", "2", "3", "5", "8", "13", "?"] },
   { label: "Yes / No", deck: ["Yes", "No"] },
 ];
 

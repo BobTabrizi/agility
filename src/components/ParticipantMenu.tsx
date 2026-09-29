@@ -99,7 +99,7 @@ export function ParticipantMenu({
         <div
           role="menu"
           style={{ top: position.top, left: position.left }}
-          className="fixed z-30 w-48 overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-lg dark:border-neutral-800 dark:bg-neutral-900"
+          className="fixed z-30 w-48 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-lg dark:border-neutral-800 dark:bg-neutral-900"
         >
           {canAppoint && (
             <button
