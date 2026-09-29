@@ -9,6 +9,7 @@ import type {
   FeedbackItem,
   FeedbackItemsResponse,
   FeedbackSubmitResponse,
+  LeaveResponse,
   PokerHistoryEntry,
   PokerHistoryResponse,
   PollHistoryEntry,
@@ -51,6 +52,14 @@ export function useRoomActions() {
         socket.emit("poll:create", poll),
       votePoll: (pollId: string, optionIds: string[]) => socket.emit("poll:vote", { pollId, optionIds }),
       setPollClosed: (closed: boolean) => socket.emit("poll:setClosed", { closed }),
+      // Removes you from the room's member list; resolves once the server has.
+      leaveRoom: async (): Promise<LeaveResponse> => {
+        try {
+          return await socket.timeout(10_000).emitWithAck("participant:leave");
+        } catch {
+          return { ok: false, error: "The server didn't respond — please try again." };
+        }
+      },
       // Admin-only deletes; the room's counts change as a result, which is what
       // makes open lists and history dialogs reload.
       deleteFeedback: (target: DeleteTarget) => socket.emit("feedback:delete", target),

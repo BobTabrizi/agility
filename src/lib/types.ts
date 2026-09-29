@@ -287,6 +287,9 @@ export type PollHistoryResponse = { ok: true; entries: PollHistoryEntry[] } | { 
 /** What an admin deletes from a list (Anonymous Box, poker/poll history): one entry by id, or all. */
 export type DeleteTarget = { id: string } | { all: true };
 
+/** Reply to `participant:leave`: ok once you're off the roster. */
+export type LeaveResponse = { ok: true } | { ok: false; error: string };
+
 /** Reply to `feedback:submit`: only confirms once the submission is stored. */
 export type FeedbackSubmitResponse = { ok: true } | { ok: false; error: string };
 

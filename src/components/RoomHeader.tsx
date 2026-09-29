@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ActivityMenu } from "@/components/ActivityMenu";
 import { InviteModal } from "@/components/InviteModal";
 import { Modal } from "@/components/Modal";
 import { ParticipantMenu } from "@/components/ParticipantMenu";
 import { MAX_DISPLAY_NAME_LENGTH, truncateName } from "@/lib/participants";
-import type { ActivityType, Participant } from "@/lib/types";
+import type { ActivityType, LeaveResponse, Participant } from "@/lib/types";
 
 export function RoomHeader({
   name,
@@ -19,6 +20,7 @@ export function RoomHeader({
   onAppointAdmin,
   onRevokeAdmin,
   onKick,
+  onLeave,
   onChangeActivity,
 }: {
   name: string;
@@ -31,11 +33,30 @@ export function RoomHeader({
   onAppointAdmin: (participantId: string) => void;
   onRevokeAdmin: (participantId: string) => void;
   onKick: (participantId: string) => void;
+  onLeave: () => Promise<LeaveResponse>;
   onChangeActivity: (activity: ActivityType) => void;
 }) {
   const [rosterOpen, setRosterOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [kickTarget, setKickTarget] = useState<Participant | null>(null);
+  const [confirmingLeave, setConfirmingLeave] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const [leaveError, setLeaveError] = useState<string | null>(null);
+  const router = useRouter();
+
+  async function leave() {
+    setLeaving(true);
+    setLeaveError(null);
+    const res = await onLeave();
+    if (res.ok) {
+      router.push("/");
+      return;
+    }
+    setLeaving(false);
+    setLeaveError(res.error);
+  }
+  const selfIsAppointedAdmin = appointedAdminIds.includes(selfId);
+  const selfIsCreator = participants.some((p) => p.id === selfId && p.isAdmin) && !selfIsAppointedAdmin;
   const rosterRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -169,6 +190,22 @@ export function RoomHeader({
                     </span>
                     {/* The row highlight marks you visually; this says it to screen readers. */}
                     {p.id === selfId && <span className="sr-only">(you)</span>}
+                    {p.id === selfId && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRosterOpen(false);
+                          setLeaveError(null);
+                          setConfirmingLeave(true);
+                        }}
+                        aria-label="Leave room"
+                        title="Leave room"
+                        // Same footprint as the "⋮" on other rows, so the list lines up.
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-neutral-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40 dark:hover:text-red-400"
+                      >
+                        <DoorIcon />
+                      </button>
+                    )}
                     {!p.connected && <span className="sr-only">(away)</span>}
                     {isAdmin && (
                       <ParticipantMenu
@@ -199,6 +236,40 @@ export function RoomHeader({
       </div>
 
       {inviteOpen && <InviteModal url={inviteUrl()} onClose={() => setInviteOpen(false)} />}
+
+      {confirmingLeave && (
+        <Modal title="Leave this room?" onClose={() => !leaving && setConfirmingLeave(false)}>
+          <p className="text-sm text-neutral-600 dark:text-neutral-300">
+            You&apos;ll be removed from the member list.
+            {selfIsAppointedAdmin && " You'll also stop being an admin."}
+            {selfIsCreator && " As the room's creator, you'll still be an admin if you come back from this browser."}{" "}
+            You can rejoin any time with the invite link.
+          </p>
+          {leaveError && (
+            <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">
+              {leaveError}
+            </p>
+          )}
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setConfirmingLeave(false)}
+              disabled={leaving}
+              className="rounded-lg border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-700 enabled:hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-200 dark:enabled:hover:bg-neutral-800"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={leave}
+              disabled={leaving}
+              className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white enabled:hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {leaving ? "Leaving…" : "Leave room"}
+            </button>
+          </div>
+        </Modal>
+      )}
 
       {kickTarget && (
         <Modal title={`Kick ${kickTarget.name}?`} onClose={() => setKickTarget(null)}>
@@ -231,6 +302,28 @@ export function RoomHeader({
         </Modal>
       )}
     </div>
+  );
+}
+
+// Lucide's "door-open" icon (ISC license), inlined like LinkIcon below.
+function DoorIcon() {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M11 20H2" />
+      <path d="M11 4.562v16.157a1 1 0 0 0 1.242.97L19 20V5.562a2 2 0 0 0-1.515-1.94l-4-1A2 2 0 0 0 11 4.561z" />
+      <path d="M11 4H8a2 2 0 0 0-2 2v14" />
+      <path d="M14 12h.01" />
+      <path d="M22 20h-3" />
+    </svg>
   );
 }
 

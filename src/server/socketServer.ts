@@ -42,6 +42,7 @@ import {
   type FeedbackItemsResponse,
   type FeedbackSubmitResponse,
   type JoinAck,
+  type LeaveResponse,
   type PokerHistoryEntry,
   type PokerHistoryResponse,
   type PollHistoryEntry,
@@ -991,6 +992,43 @@ export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
     }
     on("poker:deleteHistory", (payload: { id?: string; all?: boolean }) => deleteHistory("poker", payload));
     on("poll:deleteHistory", (payload: { id?: string; all?: boolean }) => deleteHistory("poll", payload));
+
+    // Leaving for good (the roster's "Leave" on your own row): like a kick of
+    // yourself, minus the kicked screen — your roster entry, poker vote and
+    // any appointed admin token go (the creator's admin comes from the token
+    // in their browser, so they'd still be an admin if they came back). Poll
+    // votes stay counted, as for anyone who leaves. Acked, so the client only
+    // navigates away once it's saved.
+    on("participant:leave", async (ack?: (res: LeaveResponse) => void) => {
+      const data = socket.data as SocketData;
+      const { code, participantId } = data;
+      if (!code || !participantId) return ack?.({ ok: false, error: "You're not in a room." });
+      let left = false;
+      await changeRoom(
+        socket,
+        {
+          afterSave: async () => {
+            left = true;
+            // Now outside the room: this socket's later disconnect mustn't
+            // mark anyone Away, and it stops getting the room's broadcasts.
+            data.code = undefined;
+            data.participantId = undefined;
+            data.adminToken = undefined;
+            await socket.leave(roomChannel(code));
+          },
+        },
+        (room) => {
+          if (!room.participants.some((p) => p.id === participantId)) return SKIP;
+          room.participants = room.participants.filter((p) => p.id !== participantId);
+          delete room.poker.votes[participantId];
+          delete room.appointedAdminTokens[participantId];
+        }
+      );
+      // Not saved (the room was busy; changeRoom has said so) — unless there
+      // was nothing to remove, which counts as having left.
+      const stillListed = !left && (await roomStore.getRoom(code))?.participants.some((p) => p.id === participantId);
+      ack?.(stillListed ? { ok: false, error: "Couldn't leave the room just now — please try again." } : { ok: true });
+    });
 
     // Adopts a newly granted admin token on an already-joined socket, so being
     // appointed doesn't require a leave/rejoin (which would clear a poker vote).

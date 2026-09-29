@@ -58,11 +58,12 @@ touches AWS: the DynamoDB tests run against a real (pay-per-request) table, so t
 
 ## How rooms work
 
-- **Create a room** on the home page: you pick a team/workspace name and your own display name.
+- **Create a room** on the home page: enter your display name and, optionally, a room name.
   The server generates a 6-character room code and an admin token; the token is stored in
   `localStorage` on your device only (`agility:admin:<code>`) and is what marks you as admin when
   you connect.
-- **Join a room** via `/room/<CODE>` — the link icon next to the room code opens a modal with
+- **Join a room** via `/room/<CODE>`, or by typing the 6-character code into the home page's join
+  box (pasting a whole invite link works too) — the link icon next to the room code opens a modal with
   the link, a QR code (scannable to join from a phone), and a one-click copy. New participants
   just pick a display name — no account needed. Each browser gets a stable
   per-room identity (`agility:client:<code>` in `localStorage`), so refreshing the page or
@@ -83,6 +84,12 @@ touches AWS: the DynamoDB tests run against a real (pay-per-request) table, so t
   roster entirely. It isn't a ban — they see a "You were removed" screen and can rejoin with the
   invite link. The creator can't be kicked, and you can't kick yourself. Kicking someone who's
   "Away" is a way to tidy up the roster.
+- **Leaving**: everyone has a Leave button (a door icon, "Leave room" on hover) next to their own
+  name in the member list. After a confirmation it removes you from the roster (rather than
+  leaving you listed as Away, which is what closing the tab does) and takes you back to the home
+  page. An appointed admin gives up
+  admin by leaving; the room's creator stays an admin, since that comes from their browser. Poll
+  votes you already cast still count. You can rejoin any time with the invite link.
 - **Activities**: an admin picks which activity is active for the whole room (Planning Poker,
   Poll, Wheel, Plinko, Team Randomizer, or Anonymous Box) from the dropdown on the activity name, next to the
   room name; everyone in the room sees the same activity. Participants can open the dropdown to
@@ -192,9 +199,9 @@ changes:
 - No accounts: whoever holds an admin token in their browser is an admin. Clearing site data or
   switching devices loses admin access to a room (the room itself is unaffected) — though another
   admin can re-appoint you on the new device.
-- Roster entries are only removed when an admin kicks them — there's no automatic pruning of
-  long-"Away" entries, so in a long-lived room with lots of churn the list keeps growing until an
-  admin tidies it up.
+- Roster entries are only removed when an admin kicks them, when someone leaves with the Leave
+  button, or when a full room (100) makes space for a newcomer — closing the tab just marks you
+  Away, so in a long-lived room with lots of churn the list grows until an admin tidies it up.
 - Kicking isn't a ban: without accounts there's nothing durable to ban, so a kicked person can
   simply rejoin.
 - Disconnecting (closing the tab, refreshing, losing connectivity) clears that participant's

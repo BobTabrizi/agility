@@ -207,6 +207,12 @@ port 3000 keeps answering — check which process owns the port before assuming 
     It is deliberately not a ban: the kicked person can rejoin (the kicked page has a Rejoin
     button) and comes back as a fresh participant. Kicking an Away participant is how the roster
     gets pruned.
+  - **Leaving** (`participant:leave`, the door-icon button on your own roster row, sized like the
+    other rows' "⋮") is a kick of yourself without the kicked screen: roster entry, poker vote and
+    appointed admin token go (poll votes stay). Its `afterSave` clears `socket.data` and leaves the channel, so the socket's later
+    disconnect doesn't mark anyone Away; it's acked (`LeaveResponse`) and the client only
+    navigates home on success. The creator can leave too — their admin comes from the token in
+    their browser, so they're an admin again if they return.
   - Admin actions on a person live in the roster's per-row "⋮" menu (`ParticipantMenu.tsx`), which
     is `position: fixed` because the roster list scrolls and would clip an absolute dropdown.
     Roster names are cut at `MAX_DISPLAY_NAME_LENGTH` (`truncateName`, `src/lib/participants.ts`);
@@ -282,6 +288,17 @@ port 3000 keeps answering — check which process owns the port before assuming 
   An admin's list box (Wheel/Plinko options, Team Randomizer names) gets `UseRoomMembersButton`
   and `ClearDraftButton` beneath it; both edit only the draft, never the room.
 
+- **Home page** (`src/app/page.tsx`): hero (logo lockup, headline, pitch, activity grid) plus one
+  card — "Start a room" as the primary action, joining by code as a secondary row
+  (`parseRoomCode` also accepts a pasted invite link; Join enables at 6 characters). One CSS grid
+  orders it: on phones headline → card → activities, so the main action stays above the fold; on
+  `lg` the card spans both rows on the right. The icons and the logo (a runner) are simple
+  inline SVGs drawn for this app — keep it that way: the logo is deliberately *not* RuneScape's
+  Agility skill icon, which is Jagex's copyrighted artwork. When adding an activity, add it to
+  `ACTIVITY_HIGHLIGHTS` there too.
+- **Font**: Geist (loaded in `layout.tsx`), applied app-wide by `body` in `globals.css`. The
+  Next.js starter's `font-family: Arial` there used to override it — don't reintroduce a
+  font-family that skips `var(--font-geist-sans)`.
 - **Mobile** (checked down to 320px wide): form fields use `text-base sm:text-sm` — iOS Safari zooms
   the page when focusing a field under 16px. Dropdowns must stay inside the viewport: the roster's
   `ParticipantMenu` clamps its fixed `left` to the screen, and `ActivityMenu` flips to right-aligned

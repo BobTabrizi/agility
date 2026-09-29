@@ -39,6 +39,7 @@ export function RoomShell({
           onAppointAdmin={actions.appointAdmin}
           onRevokeAdmin={actions.revokeAdmin}
           onKick={actions.kick}
+          onLeave={actions.leaveRoom}
           onChangeActivity={actions.setActivity}
         />
 
