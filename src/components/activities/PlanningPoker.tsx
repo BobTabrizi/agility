@@ -2,6 +2,7 @@
 
 import { useRef, useState, type ReactNode } from "react";
 import { HistoryLink } from "@/components/HistoryLink";
+import { Modal } from "@/components/Modal";
 import { PokerHistoryModal } from "@/components/activities/PokerHistoryModal";
 import {
   MAX_POKER_TOPIC_LENGTH,
@@ -11,7 +12,7 @@ import {
   type PokerHistorySummary,
   type PokerState,
 } from "@/lib/types";
-import { PokerVoteChart } from "@/components/activities/PokerVoteChart";
+import { PokerVoteChart, votedValues } from "@/components/activities/PokerVoteChart";
 
 export function PlanningPoker({
   poker,
@@ -44,6 +45,9 @@ export function PlanningPoker({
   onDeleteHistory: (target: DeleteTarget) => void;
 }) {
   const [historyOpen, setHistoryOpen] = useState(false);
+  // The anonymous setting the admin asked for, while they confirm it — only
+  // asked when the switch would throw away something (votes, or shown results).
+  const [pendingAnonymous, setPendingAnonymous] = useState<boolean | null>(null);
   const [topicDraft, setTopicDraft] = useState(poker.topic);
   const [lastSeenTopic, setLastSeenTopic] = useState(poker.topic);
   if (poker.topic !== lastSeenTopic) {
@@ -161,7 +165,12 @@ export function PlanningPoker({
                 type="button"
                 role="switch"
                 aria-checked={poker.anonymous}
-                onClick={() => onSetAnonymous(!poker.anonymous)}
+                onClick={() => {
+                  // Switching starts a new round (the server clears votes and
+                  // the reveal), so confirm when that loses anything.
+                  if (voteCount > 0 || poker.revealed) setPendingAnonymous(!poker.anonymous);
+                  else onSetAnonymous(!poker.anonymous);
+                }}
                 className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
                   poker.anonymous ? "bg-indigo-600" : "bg-neutral-300 dark:bg-neutral-700"
                 }`}
@@ -176,33 +185,36 @@ export function PlanningPoker({
           )}
         </div>
 
-        <div className="flex flex-wrap gap-3">
-          {participants.map((p) => {
-            const voted = Object.prototype.hasOwnProperty.call(poker.votes, p.id);
-            const showValue = poker.revealed && !poker.anonymous;
-            return (
-              <div
-                key={p.id}
-                className="flex flex-col items-center gap-1 rounded-xl border border-neutral-200 px-3 py-2 dark:border-neutral-800"
-              >
+        {poker.revealed ? (
+          <RevealedVotes
+            votes={poker.votes}
+            deck={poker.deck}
+            participants={participants}
+            selfId={selfId}
+            anonymous={poker.anonymous}
+          />
+        ) : (
+          <div className="flex flex-wrap gap-3">
+            {participants.map((p) => {
+              const voted = Object.prototype.hasOwnProperty.call(poker.votes, p.id);
+              return (
                 <div
-                  className={`flex min-h-10 min-w-8 items-center justify-center rounded-md px-2 py-1 text-center font-semibold leading-tight break-words ${
-                    showValue
-                      ? "max-w-28 text-xs bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100"
-                      : voted
-                        ? "text-sm bg-indigo-600 text-white"
-                        : "text-sm bg-neutral-100 text-neutral-400 dark:bg-neutral-800"
-                  }`}
+                  key={p.id}
+                  className="flex flex-col items-center gap-1 rounded-xl border border-neutral-200 px-3 py-2 dark:border-neutral-800"
                 >
-                  {showValue ? poker.votes[p.id] ?? "–" : voted ? "✓" : ""}
+                  <div
+                    className={`flex min-h-10 min-w-8 items-center justify-center rounded-md px-2 py-1 text-sm font-semibold ${
+                      voted ? "bg-indigo-600 text-white" : "bg-neutral-100 text-neutral-400 dark:bg-neutral-800"
+                    }`}
+                  >
+                    {voted ? "✓" : ""}
+                  </div>
+                  <span className="max-w-20 truncate text-xs text-neutral-600 dark:text-neutral-400">{p.name}</span>
                 </div>
-                <span className="max-w-20 truncate text-xs text-neutral-600 dark:text-neutral-400">
-                  {p.name}
-                </span>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
 
         {(isAdmin || (poker.revealed && average !== null)) && (
           <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
@@ -214,17 +226,17 @@ export function PlanningPoker({
             {isAdmin && (
               <div className="ml-auto flex gap-2">
                 <button
+                  onClick={onReset}
+                  className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                >
+                  Reset
+                </button>
+                <button
                   onClick={onReveal}
                   disabled={poker.revealed || voteCount === 0}
                   className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white enabled:hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400 dark:disabled:bg-neutral-800 dark:disabled:text-neutral-500"
                 >
                   Reveal
-                </button>
-                <button
-                  onClick={onReset}
-                  className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
-                >
-                  Reset
                 </button>
               </div>
             )}
@@ -264,6 +276,40 @@ export function PlanningPoker({
 
       {poker.revealed && <PokerVoteChart votes={poker.votes} deck={poker.deck} />}
 
+      {pendingAnonymous !== null && (
+        <Modal
+          title={pendingAnonymous ? "Turn on anonymous voting?" : "Turn off anonymous voting?"}
+          onClose={() => setPendingAnonymous(null)}
+        >
+          <p className="text-sm text-neutral-600 dark:text-neutral-300">
+            Changing this starts a new round:{" "}
+            {poker.revealed
+              ? "the results on screen will be cleared (they're saved under \"View past rounds\")"
+              : `the ${voteCount} vote${voteCount === 1 ? "" : "s"} cast so far will be cleared`}
+            , and everyone votes again.
+          </p>
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setPendingAnonymous(null)}
+              className="rounded-lg border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onSetAnonymous(pendingAnonymous);
+                setPendingAnonymous(null);
+              }}
+              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
+            >
+              {pendingAnonymous ? "Turn on and start new round" : "Turn off and start new round"}
+            </button>
+          </div>
+        </Modal>
+      )}
+
       <HistoryLink
         label="View past rounds"
         show={historySummary.count > 0}
@@ -280,5 +326,89 @@ export function PlanningPoker({
         />
       )}
     </div>
+  );
+}
+
+/**
+ * A revealed round, grouped by vote: one row per value, low to high (deck
+ * order), each with a badge in the value's chart color, how many voted it and
+ * — unless the round was anonymous — who. So who agrees with whom reads at a
+ * glance instead of from a grid in join order. The value with the most votes
+ * is marked (when there's a single one); people who didn't vote come last.
+ */
+function RevealedVotes({
+  votes,
+  deck,
+  participants,
+  selfId,
+  anonymous,
+}: {
+  votes: Record<string, string>;
+  deck: string[];
+  participants: Participant[];
+  selfId: string;
+  anonymous: boolean;
+}) {
+  const groups = votedValues(votes, deck);
+  const topCount = Math.max(0, ...groups.map((g) => g.count));
+  const singleTop = groups.filter((g) => g.count === topCount).length === 1 && groups.length > 1;
+  const nonVoters = participants.filter((p) => !Object.prototype.hasOwnProperty.call(votes, p.id));
+
+  function names(people: Participant[]) {
+    return (
+      <p className="mt-0.5 text-sm break-words text-neutral-800 dark:text-neutral-200">
+        {people.map((p, i) => (
+          <span key={p.id}>
+            {i > 0 && <span className="text-neutral-300 dark:text-neutral-600"> · </span>}
+            <span className={p.id === selfId ? "font-semibold text-indigo-600 dark:text-indigo-400" : undefined}>
+              {p.name}
+              {p.id === selfId && " (you)"}
+            </span>
+          </span>
+        ))}
+      </p>
+    );
+  }
+
+  return (
+    <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
+      {groups.map((g) => {
+        const voters = participants.filter((p) => votes[p.id] === g.value);
+        return (
+          <li key={g.value} className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+            <span
+              className={`flex min-h-11 min-w-11 max-w-40 shrink-0 items-center justify-center rounded-xl px-2 text-center leading-tight font-bold break-words ${
+                g.value.length <= 3 ? "text-lg" : "text-sm"
+              }`}
+              style={{ backgroundColor: g.color, color: g.ink }}
+            >
+              {g.value}
+            </span>
+            <div className="min-w-0 flex-1 pt-0.5">
+              <p className="flex flex-wrap items-center gap-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                {g.count} vote{g.count === 1 ? "" : "s"}
+                {singleTop && g.count === topCount && (
+                  <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+                    Most votes
+                  </span>
+                )}
+              </p>
+              {!anonymous && names(voters)}
+            </div>
+          </li>
+        );
+      })}
+      {nonVoters.length > 0 && (
+        <li className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
+          <span className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl border border-dashed border-neutral-300 text-lg font-bold text-neutral-400 dark:border-neutral-700 dark:text-neutral-500">
+            –
+          </span>
+          <div className="min-w-0 flex-1 pt-0.5">
+            <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">No vote</p>
+            {names(nonVoters)}
+          </div>
+        </li>
+      )}
+    </ul>
   );
 }

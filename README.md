@@ -103,9 +103,12 @@ touches AWS: the DynamoDB tests run against a real (pay-per-request) table, so t
   - **Planning Poker** — an admin sets the round's topic (up to 60 characters, with a live
     count), and the deck is admin-customizable (numbers, sizes, or short text options; rooms start with the
     Simple deck, 1 2 3 5 8 13 ?, and Fibonacci, T-shirt sizes and others are one-click presets);
-    votes are hidden until an admin reveals them, then shows each vote plus the average of
-    numeric votes. An anonymous-voting toggle hides who voted what (names stay visible, values
-    don't) and resets the round when flipped. Past rounds are kept as poker history (topic, votes,
+    votes are hidden until an admin reveals them. The reveal groups people by what they voted —
+    one row per value, low to high, with a colored badge (matching the pie chart below it), how
+    many chose it, who, and a "Most votes" marker — plus anyone who didn't vote, and the average
+    of numeric votes. An anonymous-voting toggle hides who voted what (the rows then show only
+    counts) and resets the round when flipped — after a confirmation if there are votes or
+    results on screen to lose. Past rounds are kept as poker history (topic, votes,
     average), reachable from the "View past rounds" link under the cards and loaded only when you
     open it — anonymous rounds stay anonymous in history even if the toggle is switched off later.
     Admins change the deck from the "⋮" at the top of the card picker.

@@ -50,6 +50,36 @@ function wedgePath(startAngle: number, endAngle: number) {
   return `M ${CENTER} ${CENTER} L ${start.x} ${start.y} A ${RADIUS} ${RADIUS} 0 ${largeArcFlag} 0 ${end.x} ${end.y} Z`;
 }
 
+export interface VotedValue {
+  value: string;
+  count: number;
+  // The value's color in the chart, and the text color to put on it.
+  color: string;
+  ink: string;
+}
+
+/**
+ * The values voted this round, in display order — deck order, then anything
+ * not in the deck — each with its count and chart color. The vote card
+ * (PlanningPoker's revealed rows) uses this too, so a value is the same color
+ * in both. Past the palette's size, values share the muted "Other" color.
+ */
+export function votedValues(votes: Record<string, string>, deck: string[]): VotedValue[] {
+  const counts = new Map<string, number>();
+  for (const value of Object.values(votes)) {
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  // Ordered by deck position so a value's color/position stays consistent
+  // between rounds instead of shuffling based on vote order.
+  const ordered = [...deck.filter((v) => counts.has(v)), ...[...counts.keys()].filter((v) => !deck.includes(v))];
+  return ordered.map((value, i) => ({
+    value,
+    count: counts.get(value)!,
+    color: i < MAX_SLOTS ? SLICE_COLORS[i] : OTHER_COLOR,
+    ink: i < MAX_SLOTS ? SLICE_INKS[i] : OTHER_INK,
+  }));
+}
+
 interface Wedge {
   label: string;
   count: number;
@@ -61,43 +91,24 @@ interface Wedge {
 }
 
 export function PokerVoteChart({ votes, deck }: { votes: Record<string, string>; deck: string[] }) {
-  const counts = new Map<string, number>();
-  for (const value of Object.values(votes)) {
-    counts.set(value, (counts.get(value) ?? 0) + 1);
-  }
-
   const total = Object.values(votes).length;
   if (total === 0) return null;
 
-  // Order by deck position so a value's color/position stays consistent
-  // between rounds instead of shuffling based on vote order.
-  const orderedValues = [
-    ...deck.filter((v) => counts.has(v)),
-    ...[...counts.keys()].filter((v) => !deck.includes(v)),
-  ];
-
-  const primaryValues = orderedValues.slice(0, MAX_SLOTS);
-  const overflowValues = orderedValues.slice(MAX_SLOTS);
+  const values = votedValues(votes, deck);
+  const primaryValues = values.slice(0, MAX_SLOTS);
+  const overflowValues = values.slice(MAX_SLOTS);
 
   let angle = 0;
-  const wedges: Wedge[] = primaryValues.map((label, i) => {
-    const count = counts.get(label)!;
+  const wedges: Wedge[] = [];
+  for (const { value, count, color, ink } of primaryValues) {
     const share = count / total;
     const startAngle = angle;
     angle += share * 360;
-    return {
-      label,
-      count,
-      share,
-      color: SLICE_COLORS[i],
-      ink: SLICE_INKS[i],
-      startAngle,
-      endAngle: angle,
-    };
-  });
+    wedges.push({ label: value, count, share, color, ink, startAngle, endAngle: angle });
+  }
 
   if (overflowValues.length > 0) {
-    const count = overflowValues.reduce((sum, v) => sum + (counts.get(v) ?? 0), 0);
+    const count = overflowValues.reduce((sum, v) => sum + v.count, 0);
     const share = count / total;
     const startAngle = angle;
     angle += share * 360;

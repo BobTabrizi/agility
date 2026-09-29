@@ -225,7 +225,10 @@ port 3000 keeps answering — check which process owns the port before assuming 
   socket): the stored votes never leave the server; a viewer gets counts only once they may see
   results (admin, has voted, or poll closed) and voter names only for a non-anonymous poll.
   Planning Poker's anonymous-voting mode is different: vote values are sent to every client as usual,
-  and the UI (`PlanningPoker.tsx`) simply declines to render the per-person mapping. If anonymity ever
+  and the UI (`PlanningPoker.tsx`) simply declines to render the per-person mapping (`RevealedVotes`
+  shows counts without names). A revealed round is grouped by value; the order and colors come
+  from `votedValues()` in `PokerVoteChart.tsx`, which the pie chart uses too — keep both on it so a
+  value is the same color in the rows and the chart. If anonymity ever
   needs to be enforced server-side, that's a `toPublicState()`-style change, not a UI change.
   `pokerHistory` (`poker:reveal` in `socketServer.ts`) takes the stricter approach even for the
   UI-hidden case: for a round revealed under anonymous voting, `name` is recorded as `null` in the
@@ -273,7 +276,10 @@ port 3000 keeps answering — check which process owns the port before assuming 
 
 - **Round-reset convention**: any admin action that changes the rules of the current round (changing
   the poker deck, toggling anonymous voting) resets `votes`/`revealed` on the server, so votes cast
-  under different rules can't leak into the new state. Follow this pattern for similar settings.
+  under different rules can't leak into the new state. Follow this pattern for similar settings,
+  and confirm first when the reset would lose something: the anonymous-voting switch asks before
+  flipping if there are votes or a reveal on screen (`pendingAnonymous` in `PlanningPoker.tsx`),
+  and flips straight away otherwise.
 
 - **Client draft-sync idiom**: components holding a locally-editable draft of a server-pushed value
   that stays mounted while that value can change underneath it (the poker topic input in
