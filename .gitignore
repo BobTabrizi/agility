@@ -45,3 +45,6 @@ next-env.d.ts
 
 # compiled custom server (npm run build)
 /dist/
+
+# deploy package (see README "Deploying")
+/agility-release.tgz

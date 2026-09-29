@@ -16,6 +16,14 @@ npm install       # install deps
 npm run dev        # runs server.ts via `tsx watch` — NOT `next dev`; this is what wires up Socket.IO
 npm run build       # next build, then scripts/build-server.mjs bundles server.ts into dist/server.cjs (esbuild)
 npm start          # production: node dist/server.cjs (the compiled custom server, not `next start`; no tsx)
+                   # works after `npm ci --omit=dev` — keep anything `start` needs (cross-env) in dependencies
+
+Deployed (trial): one EC2 `t4g.micro` (Ubuntu 24.04) running `node dist/server.cjs` under systemd,
+Caddy in front for HTTPS, DynamoDB access via the `agility-ec2` instance role — see README
+"Deploying (AWS)" for the setup and the per-release steps (build locally, copy a ~3 MB package,
+`npm ci --omit=dev`, restart). It's a single instance, which the in-memory rate limits and the
+post-restart presence check rely on. Never commit the instance's domain/IP, key files or account
+IDs — the README uses placeholders.
 npm run lint        # eslint
 npx tsc --noEmit -p tsconfig.json   # type-check (no dedicated script)
 npm test           # vitest run — runs once and exits; never touches AWS

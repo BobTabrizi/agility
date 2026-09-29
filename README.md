@@ -152,12 +152,90 @@ touches AWS: the DynamoDB tests run against a real (pay-per-request) table, so t
     updates its entry. Polls
     nobody voted in aren't kept.
 
-## Deploying (AWS, later)
+## Deploying (AWS)
 
-Nothing runs on AWS compute yet — the app still runs locally via `npm run dev`/`npm start` — but
-storage is already AWS-ready: `DynamoRoomStore` (see above) is real and tested against an actual
-DynamoDB table, just not the default. The app is also built to be container-deployable without
-changes:
+The trial deployment is one small EC2 instance — no Docker — with Caddy in front for HTTPS:
+
+```
+browser ──HTTPS──▶ Caddy (:443, auto certificate) ──▶ node dist/server.cjs (127.0.0.1:3000) ──▶ DynamoDB
+                                                       run by systemd, AWS access via instance role
+```
+
+**One-time setup** (region: the table's, e.g. `us-west-1`):
+
+1. **IAM role** `agility-ec2` (trusted entity: EC2) with an inline policy allowing `GetItem`,
+   `PutItem`, `UpdateItem`, `DeleteItem`, `Query`, `BatchWriteItem` and `ConditionCheckItem` on
+   the production table's ARN only. The server gets AWS access from this role — no access key
+   on the machine.
+2. **EC2 instance**: Ubuntu 24.04 (Arm), `t4g.micro` (1 GB is plenty to *run*: ~160 MB), the
+   role above as its instance profile, and a security group allowing SSH (22) from your IP only
+   and HTTP/HTTPS (80/443) from anywhere — never port 3000. Attach an **Elastic IP** so the
+   address survives stop/start.
+3. **Domain**: an `A` record pointing at the Elastic IP (a free DuckDNS subdomain works — set
+   its IP by hand to the Elastic IP; its update scripts aren't needed with a fixed IP).
+4. **Node 24** on the instance (NodeSource's `setup_24.x`, then `apt-get install nodejs`), and an
+   app folder `/opt/agility` owned by `ubuntu`.
+5. **`/etc/agility.env`** (root-only, `chmod 600`; `.env.local` is never copied):
+   ```
+   NODE_ENV=production
+   PORT=3000
+   HOST=127.0.0.1
+   ROOM_STORE=dynamodb
+   DYNAMODB_TABLE_NAME=agility-rooms-v2
+   AWS_REGION=us-west-1
+   TRUSTED_PROXY_HOPS=1
+   ```
+   `HOST=127.0.0.1` keeps the app reachable only through Caddy.
+6. **`/etc/systemd/system/agility.service`**, then `sudo systemctl daemon-reload && sudo systemctl
+   enable --now agility`:
+   ```
+   [Unit]
+   Description=Agility
+   After=network-online.target
+   Wants=network-online.target
+
+   [Service]
+   User=ubuntu
+   WorkingDirectory=/opt/agility
+   EnvironmentFile=/etc/agility.env
+   ExecStart=/usr/bin/node --enable-source-maps dist/server.cjs
+   Restart=always
+   RestartSec=3
+   TimeoutStopSec=15
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+   It runs `node` directly (not `npm start`) so systemd's stop signal reaches the app and the
+   graceful shutdown runs; it restarts the app if it crashes and on reboot.
+7. **Caddy** from its official apt repository, with `/etc/caddy/Caddyfile`:
+   ```
+   your-domain.example {
+       reverse_proxy 127.0.0.1:3000
+   }
+   ```
+   then `sudo systemctl reload caddy`. Caddy gets and renews the certificate, redirects HTTP to
+   HTTPS, proxies WebSockets, and appends the client IP to `X-Forwarded-For` (hence
+   `TRUSTED_PROXY_HOPS=1`). It needs the DNS record in place and ports 80/443 open first.
+
+**Each release** — build locally (`next build` wants most of 1 GB, so don't build on the micro):
+
+```bash
+npm run build
+tar -czf agility-release.tgz --exclude=.next/cache --exclude=.next/dev .next dist public package.json package-lock.json next.config.ts
+scp -i <key.pem> agility-release.tgz ubuntu@<your-domain>:/opt/agility/
+```
+
+then on the server: `cd /opt/agility && tar -xzf agility-release.tgz && npm ci --omit=dev &&
+sudo systemctl restart agility` (the package is ~3 MB; `npm ci --omit=dev` installs no build
+tools). Everyone sees the "reconnecting" banner for a few seconds and rejoins on their own.
+
+**Checking on it**: `https://<your-domain>/api/health/ready` should return 200 with
+`"database":"ok"`; on the server, `systemctl status agility`, `journalctl -u agility -f` (app log)
+and `journalctl -u caddy -n 50` (certificates). Cost guards, set in the AWS console: a Budgets
+alarm, the table's on-demand maximum throughput, TTL on `expiresAt`, and Cost Anomaly Detection.
+
+Other deployment notes:
 
 - A `Dockerfile` at the repo root builds and runs the app (`docker build -t agility .` /
   `docker run -p 3000:3000 agility`). Not yet verified (no Docker on the dev machine so far), and
@@ -244,10 +322,15 @@ changes:
 
 ### Future considerations
 
-- **Logs and uptime monitoring once hosted.** The server writes errors (and failed health
-  checks, as `[health] …`) to its standard output. Ship that to CloudWatch Logs when setting up
-  hosting (the CloudWatch agent on EC2, or automatic on ECS) so it's searchable and survives
-  restarts, and point a free uptime monitor at `/api/health/ready` to get alerted.
+- **Logs and uptime monitoring.** On the EC2 deployment the app's output (errors, failed health
+  checks as `[health] …`) goes to the systemd journal (`journalctl -u agility`), which only lives
+  on the instance. Ship it to CloudWatch Logs (the CloudWatch agent) so it's searchable from the
+  console and survives the instance, and point a free uptime monitor at `/api/health/ready`.
+- **Only accept real-time connections from our own site.** Socket.IO still allows any origin
+  (`cors: { origin: "*" }` in `socketServer.ts`), so another website could open sockets to the
+  server from its visitors' browsers. Now that there's a domain, make the allowed origin a setting
+  (e.g. `CORS_ORIGIN=https://<your-domain>` in `/etc/agility.env`, unset = anything, for local
+  dev).
 - **A vote sent right after a Reset can be rejected.** Votes are written directly (one field, no
   queue), while Reset goes through the queued whole-room path. A vote that reaches DynamoDB before
   a Reset it was sent after still sees the round as revealed, so it's refused and the card just
@@ -255,11 +338,12 @@ changes:
   ~100ms after a Reset under heavy load hit it — but if it shows up for real users, the client
   could hold card clicks for a moment after a reset, or the server could briefly retry a vote
   refused only because the round was still revealed.
-- **Scope the AWS access key down before deploying.** The IAM user behind the key in `.env.local`
-  has a scoped inline policy for the two `agility-rooms-v2` tables (the actions listed under
-  "DynamoDB table setup" above), but also still has broader DynamoDB access from another policy
-  (likely `AmazonDynamoDBFullAccess`) — enough to read or delete any table in the account if the
-  key leaked. To finish: remove the broad policy in IAM → Users → Permissions, then run
+- **Scope down the local AWS access key.** The deployed server doesn't use it (it has the
+  `agility-ec2` instance role, scoped to the one table). But the IAM user behind the key in
+  `.env.local` — used for local development and `npm run test:dynamo` — has a scoped inline policy
+  for the two tables *and* broader DynamoDB access from another policy (likely
+  `AmazonDynamoDBFullAccess`), enough to read or delete any table in the account if the key
+  leaked. To finish: remove the broad policy in IAM → Users → Permissions, then run
   `npm run test:dynamo` once; if it passes, the inline policy covers everything the app needs.
 - **Mobile polish left over.** The layout works down to 320px wide, but on a phone the room name
   is cut short next to the activity name, and the roster's "⋮" buttons are 24px (below the
