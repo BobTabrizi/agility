@@ -25,7 +25,7 @@ Caddy in front for HTTPS, DynamoDB access via the `agility-ec2` instance role �
 post-restart presence check rely on. Never commit the instance's domain/IP, key files or account
 IDs — the README uses placeholders.
 npm run lint        # eslint
-npx tsc --noEmit -p tsconfig.json   # type-check (no dedicated script)
+npm run typecheck   # next typegen (LayoutProps etc. live in .next/types, absent in a fresh checkout), then tsc --noEmit
 npm test           # vitest run — runs once and exits; never touches AWS
 npm run test:watch  # vitest — watch mode
 npm run test:dynamo # the DynamoDB suite, against a real pay-per-request table — opt-in, see below

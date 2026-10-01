@@ -93,8 +93,9 @@ runs the same checks, each step in a throwaway container on Docker Desktop.
 1. Start it: `docker compose up -d --build` in `ci/jenkins/`, then open
    [http://localhost:8080](http://localhost:8080) (only reachable from this machine).
 2. Unlock it with the initial admin password:
-   `docker compose exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword` (from
-   `ci/jenkins/`). Then "Install suggested plugins" (the ones the `Jenkinsfile` needs are
+   `docker exec jenkins-jenkins-1 cat /var/jenkins_home/secrets/initialAdminPassword` (or open
+   the container's logs in Docker Desktop, where it's printed between rows of asterisks). In Git
+   Bash, write `//var/...`: it rewrites a leading `/var` into a Windows path otherwise. Then "Install suggested plugins" (the ones the `Jenkinsfile` needs are
    already in the image) and create your admin user.
 3. New Item → name it → **Pipeline** → under Pipeline, Definition **Pipeline script from SCM**,
    SCM **Git**, the repo's GitHub URL, branch `*/main`, script path `Jenkinsfile` → Save →

@@ -7,6 +7,7 @@
     "build": "next build && node scripts/build-server.mjs",
     "start": "cross-env NODE_ENV=production node --enable-source-maps dist/server.cjs",
     "lint": "eslint",
+    "typecheck": "next typegen && tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:dynamo": "cross-env RUN_DYNAMODB_TESTS=1 vitest run src/server/dynamoRoomStore.test.ts",

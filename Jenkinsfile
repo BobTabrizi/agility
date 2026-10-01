@@ -33,7 +33,7 @@ pipeline {
           steps { sh 'npm run lint' }
         }
         stage('Type-check') {
-          steps { sh 'npx tsc --noEmit -p tsconfig.json' }
+          steps { sh 'npm run typecheck' }
         }
         stage('Unit tests') {
           steps { sh 'npm test' }
