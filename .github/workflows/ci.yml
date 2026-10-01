@@ -38,8 +38,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run lint
-      - name: Type-check
-        run: npx tsc --noEmit -p tsconfig.json
+      - run: npm run typecheck
       - run: npm test
       - name: DynamoDB tests (DynamoDB Local)
         run: npm run test:dynamo:local
