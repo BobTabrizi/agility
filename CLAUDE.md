@@ -29,12 +29,24 @@ npx tsc --noEmit -p tsconfig.json   # type-check (no dedicated script)
 npm test           # vitest run — runs once and exits; never touches AWS
 npm run test:watch  # vitest — watch mode
 npm run test:dynamo # the DynamoDB suite, against a real pay-per-request table — opt-in, see below
+docker compose up --build    # production image + DynamoDB Local on :3000 — no AWS, nothing billed
+npm run test:dynamo:local    # creates the test table in DynamoDB Local (compose running), then the DynamoDB suite
 ```
+
+CI: GitHub Actions (`.github/workflows/ci.yml`) and, as an alternative, Jenkins
+(`ci/jenkins/` + root `Jenkinsfile`) run the same steps — keep them in step when adding a check.
+Both run the DynamoDB suite only against DynamoDB Local; CI must never need AWS credentials.
+
+Docker Desktop (WSL 2 backend) is installed. `docker` isn't on Git Bash's PATH in this
+environment — run it from PowerShell. `Dockerfile` is two-stage (see README "Other deployment
+notes"); `docker-compose.yml` points the app at DynamoDB Local through `AWS_ENDPOINT_URL_DYNAMODB`,
+which the AWS SDK reads itself (no app code for it). Prefer compose + `test:dynamo:local` over the
+real tables for any DynamoDB testing that doesn't specifically need AWS.
 
 **Keep AWS usage deliberate.** Both DynamoDB tables are on-demand (billed per request), and the owner
 wants to stay well inside free-tier/credit limits:
 - `npm test` skips `dynamoRoomStore.test.ts` (it needs `RUN_DYNAMODB_TESTS=1`, which only
-  `npm run test:dynamo` sets). Run `test:dynamo` once after changing `RoomStore`, `DynamoRoomStore` or
+  `npm run test:dynamo` and `test:dynamo:local` set; the local one is free — use it first). Run `test:dynamo` once after changing `RoomStore`, `DynamoRoomStore` or
   `roomUpdates.ts` — not on every edit, and not in a watch loop.
 - The dev server uses DynamoDB whenever `.env.local` has `ROOM_STORE=dynamodb`, so load tests or
   scripted multi-client runs against it (dozens of simulated voters, many rounds) are real billed

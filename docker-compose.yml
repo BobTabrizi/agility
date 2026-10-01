@@ -1,0 +1,41 @@
+# The whole app on your machine, DynamoDB included, with no AWS account:
+#   docker compose up --build      → http://localhost:3000
+# DynamoDB Local keeps its data in memory: it survives restarting the app
+# container, not `docker compose down`. Its port 8000 is also open to the host
+# for `npm run test:dynamo:local`.
+
+x-local-dynamodb: &local-dynamodb
+  ROOM_STORE: dynamodb
+  DYNAMODB_TABLE_NAME: agility-local
+  DYNAMODB_TEST_TABLE: agility-local-test
+  AWS_ENDPOINT_URL_DYNAMODB: http://dynamodb:8000
+  AWS_REGION: us-west-1
+  # DynamoDB Local accepts any credentials; the SDK just needs some to be set.
+  AWS_ACCESS_KEY_ID: local
+  AWS_SECRET_ACCESS_KEY: local
+
+services:
+  dynamodb:
+    image: amazon/dynamodb-local
+    command: -jar DynamoDBLocal.jar -inMemory -sharedDb
+    ports:
+      - "8000:8000"
+
+  # Creates the tables, then exits. Uses the image `app` builds.
+  tables:
+    image: agility:local
+    pull_policy: never
+    command: node scripts/create-local-tables.mjs
+    environment: *local-dynamodb
+    depends_on:
+      - dynamodb
+
+  app:
+    build: .
+    image: agility:local
+    ports:
+      - "3000:3000"
+    environment: *local-dynamodb
+    depends_on:
+      tables:
+        condition: service_completed_successfully

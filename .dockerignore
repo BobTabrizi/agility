@@ -1,6 +1,12 @@
 node_modules
 .next
+dist
 .git
+.claude
+coverage
 npm-debug.log*
 .env*
+*.pem
+*.tsbuildinfo
+agility-release.tgz
 README.md

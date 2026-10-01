@@ -9,7 +9,8 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:dynamo": "cross-env RUN_DYNAMODB_TESTS=1 vitest run src/server/dynamoRoomStore.test.ts"
+    "test:dynamo": "cross-env RUN_DYNAMODB_TESTS=1 vitest run src/server/dynamoRoomStore.test.ts",
+    "test:dynamo:local": "cross-env-shell RUN_DYNAMODB_TESTS=1 AWS_ENDPOINT_URL_DYNAMODB=http://localhost:8000 DYNAMODB_TEST_TABLE=agility-local-test AWS_REGION=us-west-1 AWS_ACCESS_KEY_ID=local AWS_SECRET_ACCESS_KEY=local \"node scripts/create-local-tables.mjs && vitest run src/server/dynamoRoomStore.test.ts\""
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1138.0",

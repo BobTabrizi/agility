@@ -60,6 +60,52 @@ start reconnecting straight away, stops accepting requests, and exits within 8 s
 `npm test` runs the test suite (Vitest) once; `npm run test:watch` runs it in watch mode. Neither
 touches AWS: the DynamoDB tests run against a real (pay-per-request) table, so they're opt-in via
 `npm run test:dynamo` — worth running after changing the room storage code, not on every edit.
+With the Docker setup below running, `npm run test:dynamo:local` runs the same tests against
+DynamoDB Local instead — free, and no AWS account needed.
+
+### With Docker (no AWS needed)
+
+```bash
+docker compose up --build
+```
+
+builds the production image and runs it at [http://localhost:3000](http://localhost:3000) with
+`ROOM_STORE=dynamodb` against **DynamoDB Local** (Amazon's offline copy of DynamoDB, in its own
+container) — the same code path as the deployed app, with nothing billed. `docker-compose.yml`
+starts three services: `dynamodb`, `tables` (creates the tables with
+`scripts/create-local-tables.mjs`, then exits) and `app`. The AWS SDK reads
+`AWS_ENDPOINT_URL_DYNAMODB` on its own, so pointing at DynamoDB Local needs no app setting; the
+credentials in the compose file are dummies (DynamoDB Local accepts any). Its data is in memory:
+it survives `docker compose restart app` (handy for testing reconnects and the graceful shutdown)
+but not `docker compose down`.
+
+## CI
+
+**GitHub Actions** (`.github/workflows/ci.yml`) runs on every push to `main` and every pull
+request: lint, type-check, `npm test`, the DynamoDB suite against DynamoDB Local (a service
+container — `npm run test:dynamo:local`, never real AWS), `npm run build`, and a build of the
+Docker image (not pushed anywhere). It uses no secrets, and the repo is public, so the minutes
+are free. Nothing deploys automatically yet.
+
+**Jenkins** can be used as an alternative (`ci/jenkins/`): the `Jenkinsfile` at the repo root
+runs the same checks, each step in a throwaway container on Docker Desktop.
+
+1. Start it: `docker compose up -d --build` in `ci/jenkins/`, then open
+   [http://localhost:8080](http://localhost:8080) (only reachable from this machine).
+2. Unlock it with the initial admin password:
+   `docker compose exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword` (from
+   `ci/jenkins/`). Then "Install suggested plugins" (the ones the `Jenkinsfile` needs are
+   already in the image) and create your admin user.
+3. New Item → name it → **Pipeline** → under Pipeline, Definition **Pipeline script from SCM**,
+   SCM **Git**, the repo's GitHub URL, branch `*/main`, script path `Jenkinsfile` → Save →
+   **Build Now**. Jenkins reads the `Jenkinsfile` from GitHub, so it builds what's been pushed,
+   not local changes.
+4. A Jenkins on localhost can't receive GitHub's webhooks; to build on new commits, tick
+   **Poll SCM** under Triggers with a schedule like `H/5 * * * *`.
+
+Its jobs and history live in the `jenkins_home` Docker volume (`docker compose down -v` wipes
+them). It has full control of Docker through the mounted socket — fine on your own machine, never
+something to expose to a network.
 
 ## How rooms work
 
@@ -237,15 +283,17 @@ alarm, the table's on-demand maximum throughput, TTL on `expiresAt`, and Cost An
 
 Other deployment notes:
 
-- A `Dockerfile` at the repo root builds and runs the app (`docker build -t agility .` /
-  `docker run -p 3000:3000 agility`). Not yet verified (no Docker on the dev machine so far), and
-  still a single stage that keeps devDependencies. Next steps: a multi-stage build whose final
-  image has only production dependencies plus `.next/` and `dist/` (the server no longer needs
-  `tsx` at runtime), running as the unprivileged `node` user, and starting with
-  `node dist/server.cjs` directly rather than through `npm` (so the stop signal reaches the app
-  and it shuts down gracefully). Note that Docker's `HEALTHCHECK` only marks a container
-  unhealthy; plain Docker doesn't restart it (ECS does; on a single host, use systemd or an
-  autoheal helper).
+- A `Dockerfile` at the repo root builds the production image (`docker build -t agility .` /
+  `docker run -p 3000:3000 agility`, in-memory rooms unless you pass the DynamoDB settings with
+  `-e`). Two stages: the first installs everything and runs `npm run build`; the final image has
+  only production packages plus `.next/`, `dist/` and `public/`, runs as the unprivileged `node`
+  user, and starts with `node dist/server.cjs` directly, so `docker stop`'s SIGTERM reaches the
+  app and the graceful shutdown runs (a restart takes under a second instead of Docker's 10s
+  kill). It also deletes the glibc builds of Next's compiler and sharp that npm installs
+  alongside Alpine's musl ones (~110 MB that could never load). Verified with
+  `docker compose` (rooms, votes, health checks, restart). Note that Docker's `HEALTHCHECK` only
+  marks a container unhealthy; plain Docker doesn't restart it (ECS does; on a single host, use
+  systemd or an autoheal helper).
 - The server binds to `0.0.0.0` (not `localhost`), so it's reachable from outside the container.
 - **Behind a reverse proxy** (Caddy, a load balancer), set `TRUSTED_PROXY_HOPS` to how many of
   your own proxies sit in front of the server (e.g. `1` for Caddy alone). The room-creation limit

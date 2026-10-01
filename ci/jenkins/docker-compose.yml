@@ -1,0 +1,23 @@
+# Jenkins, as an alternative CI — see README "CI". From this folder:
+#   docker compose up -d --build    → http://localhost:8080
+# Its settings, jobs and build history live in the `jenkins_home` volume, so
+# they survive `docker compose down` (add `-v` to wipe them).
+
+services:
+  jenkins:
+    build: .
+    ports:
+      # Only reachable from this machine.
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      # Lets Jenkins start containers (the build steps, DynamoDB Local, the
+      # image build) on Docker Desktop. That's full control of Docker, which
+      # is why this Jenkins stays local.
+      - /var/run/docker.sock:/var/run/docker.sock
+    # The socket belongs to group 0 (root); the jenkins user needs to be in it.
+    group_add:
+      - "0"
+
+volumes:
+  jenkins_home:
