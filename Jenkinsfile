@@ -65,4 +65,13 @@ pipeline {
       steps { sh 'docker build -t agility:jenkins .' }
     }
   }
+
+  post {
+    // Delete the workspace after every build, pass or fail. Keeping it saves
+    // nothing (npm ci reinstalls node_modules from scratch anyway) and costs
+    // ~700 MB per job — per branch and PR in a multibranch job.
+    always {
+      cleanWs(notFailBuild: true)
+    }
+  }
 }

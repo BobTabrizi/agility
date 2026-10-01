@@ -12,4 +12,5 @@ COPY --from=docker/buildx-bin /buildx /usr/libexec/docker/cli-plugins/docker-bui
 USER jenkins
 # workflow-aggregator: Pipeline itself. docker-workflow: `agent { docker ... }`
 # and docker.image(...). pipeline-graph-view: the stage-by-stage build view.
-RUN jenkins-plugin-cli --plugins workflow-aggregator git docker-workflow pipeline-graph-view
+# ws-cleanup: cleanWs(), which empties the workspace after each build.
+RUN jenkins-plugin-cli --plugins workflow-aggregator git docker-workflow pipeline-graph-view ws-cleanup

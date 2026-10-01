@@ -5,6 +5,7 @@ import { roomStore, type DeleteTarget, type HistoryKind, type StoredRoom } from 
 import { createVersionedThrottle } from "@/server/roomThrottle";
 import { guardHandler } from "@/server/guardHandler";
 import { markRealtimeReady } from "@/server/health";
+import { allowedOrigins, isAllowedOrigin } from "@/server/allowedOrigins";
 import { clientIp } from "@/server/clientIp";
 import { createTokenBucket } from "@/server/rateLimit";
 import { plinkoPath } from "@/lib/plinkoPath";
@@ -363,9 +364,14 @@ export function closeSocketServer(): Promise<void> {
 export function initSocketServer(httpServer: HTTPServer): SocketIOServer {
   if (io) return io;
 
+  // CORS_ORIGIN (unset = any, for local dev). `cors` only covers Socket.IO's
+  // HTTP long-polling; browsers don't apply CORS to WebSockets, so
+  // allowRequest checks the Origin of every connection, both kinds.
+  const origins = allowedOrigins(process.env.CORS_ORIGIN);
   io = new SocketIOServer(httpServer, {
     path: "/api/socket",
-    cors: { origin: "*" },
+    cors: { origin: origins ?? "*" },
+    allowRequest: (req, callback) => callback(null, isAllowedOrigin(req.headers.origin, origins)),
     // Socket.IO accepts 1 MB messages by default; the largest thing we take is
     // a Team Randomizer name list (200 names x 60 characters), so 64 KB leaves
     // plenty of room without letting anyone push megabytes at the server.

@@ -36,6 +36,8 @@ npm run test:dynamo:local    # creates the test table in DynamoDB Local (compose
 CI: GitHub Actions (`.github/workflows/ci.yml`) and, as an alternative, Jenkins
 (`ci/jenkins/` + root `Jenkinsfile`) run the same steps — keep them in step when adding a check.
 Both run the DynamoDB suite only against DynamoDB Local; CI must never need AWS credentials.
+The `Jenkinsfile` deletes its workspace after every build (`cleanWs`, ws-cleanup plugin) —
+~700 MB per job/branch otherwise; keep it. Disk-space notes are in README "CI".
 
 Docker Desktop (WSL 2 backend) is installed. `docker` isn't on Git Bash's PATH in this
 environment — run it from PowerShell. `Dockerfile` is two-stage (see README "Other deployment
@@ -81,6 +83,12 @@ port 3000 keeps answering — check which process owns the port before assuming 
   `clientIp` on the handshake itself. The room-creation limit (`roomCreationLimiter`,
   `src/server/rateLimit.ts`, 10 per IP per rolling day) lives on `globalThis` like `roomStore`,
   and only counts rooms actually created.
+
+- **Allowed origins** (`src/server/allowedOrigins.ts`, unit-tested): `CORS_ORIGIN` (comma-separated;
+  unset = any, which is what dev/compose/CI run with) is enforced by Socket.IO's `allowRequest`
+  on every connection's `Origin` header — not just the `cors` option, which only covers
+  long-polling (browsers don't apply CORS to WebSockets). No `Origin` = not a browser page, let
+  through. Read inside `initSocketServer`, after `.env.local` has loaded.
 
 - **`initSocketServer` is imported dynamically inside `app.prepare().then(...)`, not as a static
   top-level import.** This matters: `next({...})` loads `.env.local` synchronously in its own

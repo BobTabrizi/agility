@@ -105,7 +105,24 @@ runs the same checks, each step in a throwaway container on Docker Desktop.
    **Poll SCM** under Triggers with a schedule like `H/5 * * * *`.
 
 Its jobs and history live in the `jenkins_home` Docker volume (`docker compose down -v` wipes
-them). It has full control of Docker through the mounted socket — fine on your own machine, never
+them).
+
+**Disk space.** Everything Docker stores — images, containers, volumes, build cache — lives in one
+file, `%LOCALAPPDATA%\Docker\wsl\disk\docker_data.vhdx` (~10 GB with this setup). Of that:
+- **Jenkins** is about 250 MB of plugins and Jenkins itself, plus build logs (tiny: the
+  `Jenkinsfile` keeps the last 20 builds per job). The `Jenkinsfile` deletes each build's
+  workspace when it finishes (`cleanWs`) — otherwise every job, and every branch and pull request
+  of a multibranch job, would keep ~700 MB of `node_modules` and `.next` around.
+- **Images** are about 3 GB: the ones builds use (`node:24-alpine`, `amazon/dynamodb-local`,
+  `agility:jenkins` — overwritten by each build, so it doesn't pile up), Jenkins's own, and the
+  compose app's `agility:local`.
+- **Docker's build cache** is what keeps growing, with every image build. Clear it now and then
+  with `docker builder prune -f`, and unused images with `docker image prune -f`.
+
+`docker system df` shows the breakdown. Freed space is reused, but the `.vhdx` file itself never
+shrinks: to hand space back to Windows, use Docker Desktop → Troubleshoot → Clean / Purge data
+(wipes everything, Jenkins included), or stop Docker and compact the file with `Optimize-VHD`
+from an admin PowerShell. It has full control of Docker through the mounted socket — fine on your own machine, never
 something to expose to a network.
 
 ## How rooms work
@@ -231,8 +248,10 @@ browser ──HTTPS──▶ Caddy (:443, auto certificate) ──▶ node dist/
    DYNAMODB_TABLE_NAME=agility-rooms-v2
    AWS_REGION=us-west-1
    TRUSTED_PROXY_HOPS=1
+   CORS_ORIGIN=https://your-domain.example
    ```
-   `HOST=127.0.0.1` keeps the app reachable only through Caddy.
+   `HOST=127.0.0.1` keeps the app reachable only through Caddy. `CORS_ORIGIN` is the site's own
+   address (scheme + domain, no path), so only its pages can open real-time connections.
 6. **`/etc/systemd/system/agility.service`**, then `sudo systemctl daemon-reload && sudo systemctl
    enable --now agility`:
    ```
@@ -302,6 +321,12 @@ Other deployment notes:
   from the proxy itself, and everyone would share one allowance. Leave it unset (0) when nothing
   is in front of the server: then `X-Forwarded-For` is ignored, since a client could fake it.
   The same IP is used for the 20-connections-per-IP limit (`MAX_CONNECTIONS_PER_IP` to change it).
+- **`CORS_ORIGIN`**: the origins allowed to open real-time connections, comma-separated (e.g.
+  `https://agility.example`). Every Socket.IO connection's `Origin` header is checked against it,
+  WebSocket included (CORS itself doesn't apply to WebSockets), so another website can't connect
+  to the server from its visitors' browsers; those get a 403. Requests with no `Origin` (not
+  from a browser page) are let through — they could claim any origin anyway. Unset (local dev,
+  Docker compose, CI), any origin is allowed, exactly as before.
 - Two health endpoints, both uncacheable, `200` when healthy and `503` when not:
   - `GET /api/health` (**liveness**): the server is up and Socket.IO is attached. For whatever
     restarts the server (the `Dockerfile`'s `HEALTHCHECK` uses it). It deliberately never checks
@@ -375,11 +400,6 @@ Other deployment notes:
   checks as `[health] …`) goes to the systemd journal (`journalctl -u agility`), which only lives
   on the instance. Ship it to CloudWatch Logs (the CloudWatch agent) so it's searchable from the
   console and survives the instance, and point a free uptime monitor at `/api/health/ready`.
-- **Only accept real-time connections from our own site.** Socket.IO still allows any origin
-  (`cors: { origin: "*" }` in `socketServer.ts`), so another website could open sockets to the
-  server from its visitors' browsers. Now that there's a domain, make the allowed origin a setting
-  (e.g. `CORS_ORIGIN=https://<your-domain>` in `/etc/agility.env`, unset = anything, for local
-  dev).
 - **A vote sent right after a Reset can be rejected.** Votes are written directly (one field, no
   queue), while Reset goes through the queued whole-room path. A vote that reaches DynamoDB before
   a Reset it was sent after still sees the round as revealed, so it's refused and the card just
